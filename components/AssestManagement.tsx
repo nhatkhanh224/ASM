@@ -120,10 +120,21 @@ async function fetchExchangeRatesFromAPI(): Promise<ExchangeRates | null> {
   }
 }
 
+// ─── Helpers: recalculate assets với tỷ giá hiện tại ─────────────────────────
+
+function applyRates(assets: Asset[], rates: ExchangeRates): AssetWithRate[] {
+  return assets.map((asset) => {
+    const rate = rates[asset.currency] ?? 1;
+    const currentValueInVND = (asset.originalValue ?? asset.value) * rate;
+    return { ...asset, currentValueInVND };
+  });
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function AssetManagementApp() {
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
   const [showForm, setShowForm] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [view, setView] = useState<"list" | "chart">("list");
@@ -134,9 +145,16 @@ export default function AssetManagementApp() {
     setAssets(data);
   };
 
+  // Fetch rates một lần ở root, truyền xuống tất cả children
   useEffect(() => {
     fetchAssets();
+    fetchExchangeRatesFromAPI().then((rates) => {
+      if (rates) setExchangeRates(rates);
+    });
   }, []);
+
+  // Assets đã được tính lại theo tỷ giá live
+  const assetsWithRate = applyRates(assets, exchangeRates);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Bạn có chắc muốn xóa tài sản này?")) return;
@@ -186,12 +204,14 @@ export default function AssetManagementApp() {
             </button>
           </div>
 
-          <SummaryCards assets={assets} />
+          {/* SummaryCards giờ nhận assetsWithRate đã tính sẵn */}
+          <SummaryCards assetsWithRate={assetsWithRate} />
         </div>
 
         {/* Form */}
         {showForm && (
           <AssetForm
+            exchangeRates={exchangeRates}
             onCreated={() => {
               fetchAssets();
               setShowForm(false);
@@ -232,12 +252,13 @@ export default function AssetManagementApp() {
 
         {view === "list" ? (
           <AssetList
-            assets={assets}
+            assetsWithRate={assetsWithRate}
+            exchangeRates={exchangeRates}
             onDelete={handleDelete}
             onEdit={handleEdit}
           />
         ) : (
-          <AssetChart assets={assets} />
+          <AssetChart assetsWithRate={assetsWithRate} />
         )}
       </div>
     </div>
@@ -246,11 +267,11 @@ export default function AssetManagementApp() {
 
 // ─── SummaryCards ─────────────────────────────────────────────────────────────
 
-function SummaryCards({ assets }: { assets: Asset[] }) {
-  const total = assets.reduce((sum, asset) => sum + asset.value, 0);
+function SummaryCards({ assetsWithRate }: { assetsWithRate: AssetWithRate[] }) {
+  const total = assetsWithRate.reduce((sum, a) => sum + a.currentValueInVND, 0);
 
-  const byType = assets.reduce<Record<string, number>>((acc, asset) => {
-    acc[asset.type] = (acc[asset.type] ?? 0) + asset.value;
+  const byType = assetsWithRate.reduce<Record<string, number>>((acc, asset) => {
+    acc[asset.type] = (acc[asset.type] ?? 0) + asset.currentValueInVND;
     return acc;
   }, {});
 
@@ -310,11 +331,10 @@ interface AssetFormProps {
   onCreated: () => void;
   onCancel: () => void;
   editingAsset: Asset | null;
+  exchangeRates: ExchangeRates; // nhận từ parent, không tự fetch nữa
 }
 
-function AssetForm({ onCreated, onCancel, editingAsset }: AssetFormProps) {
-  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
-  const [loading, setLoading] = useState(false);
+function AssetForm({ onCreated, onCancel, editingAsset, exchangeRates }: AssetFormProps) {
   const [submitting, setSubmitting] = useState(false);
 
   const [form, setForm] = useState<AssetFormState>({
@@ -325,14 +345,6 @@ function AssetForm({ onCreated, onCancel, editingAsset }: AssetFormProps) {
     value: editingAsset?.value ?? 0,
     note: editingAsset?.note ?? "",
   });
-
-  useEffect(() => {
-    setLoading(true);
-    fetchExchangeRatesFromAPI().then((rates) => {
-      if (rates) setExchangeRates(rates);
-      setLoading(false);
-    });
-  }, []);
 
   const submit = async () => {
     if (!form.name || form.value <= 0) {
@@ -367,9 +379,6 @@ function AssetForm({ onCreated, onCancel, editingAsset }: AssetFormProps) {
         <h2 className="text-xl font-bold text-gray-800">
           {editingAsset ? "Chỉnh sửa tài sản" : "Thêm tài sản mới"}
         </h2>
-        {loading && (
-          <span className="text-xs text-gray-500">Đang cập nhật tỷ giá...</span>
-        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -453,7 +462,8 @@ function AssetForm({ onCreated, onCancel, editingAsset }: AssetFormProps) {
                   Giá trị quy đổi sang VND
                 </p>
                 <p className="text-xs text-blue-600 mt-1">
-                  Tỷ giá: 1 {form.currency} = {(exchangeRates[form.currency] ?? 1).toLocaleString()} VND
+                  Tỷ giá: 1 {form.currency} ={" "}
+                  {(exchangeRates[form.currency] ?? 1).toLocaleString()} VND
                 </p>
               </div>
               <p className="text-lg font-bold text-blue-900">
@@ -501,32 +511,16 @@ function AssetForm({ onCreated, onCancel, editingAsset }: AssetFormProps) {
 // ─── AssetList ────────────────────────────────────────────────────────────────
 
 interface AssetListProps {
-  assets: Asset[];
+  assetsWithRate: AssetWithRate[];
+  exchangeRates: ExchangeRates;
   onDelete: (id: string) => void;
   onEdit: (asset: Asset) => void;
 }
 
-function AssetList({ assets, onDelete, onEdit }: AssetListProps) {
-  const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
+function AssetList({ assetsWithRate, exchangeRates, onDelete, onEdit }: AssetListProps) {
+  const total = assetsWithRate.reduce((sum, a) => sum + a.currentValueInVND, 0);
 
-  useEffect(() => {
-    fetchExchangeRatesFromAPI().then((rates) => {
-      if (rates) setExchangeRates(rates);
-    });
-  }, []);
-
-  const assetsWithCurrentRate: AssetWithRate[] = assets.map((asset) => {
-    const rate = exchangeRates[asset.currency] ?? 1;
-    const currentValueInVND = (asset.originalValue ?? asset.value) * rate;
-    return { ...asset, currentValueInVND };
-  });
-
-  const total = assetsWithCurrentRate.reduce(
-    (sum, asset) => sum + asset.currentValueInVND,
-    0
-  );
-
-  if (assets.length === 0) {
+  if (assetsWithRate.length === 0) {
     return (
       <div className="bg-white rounded-2xl shadow-lg p-12 text-center border border-gray-100">
         <Wallet className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -542,17 +536,18 @@ function AssetList({ assets, onDelete, onEdit }: AssetListProps) {
     <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
       <div className="p-6 border-b border-gray-100">
         <h2 className="text-xl font-bold text-gray-800">Danh sách tài sản</h2>
-        <p className="text-sm text-gray-500 mt-1">{assets.length} tài sản</p>
+        <p className="text-sm text-gray-500 mt-1">{assetsWithRate.length} tài sản</p>
       </div>
 
       <div className="divide-y divide-gray-100">
-        {assetsWithCurrentRate.map((asset) => {
+        {assetsWithRate.map((asset) => {
           const config = ASSET_TYPE_CONFIG[asset.type];
           const Icon = config.icon;
           const percentage =
             total > 0
               ? ((asset.currentValueInVND / total) * 100).toFixed(1)
               : "0";
+          // So sánh giá lúc save vs giá hiện tại
           const hasRateChanged = Math.abs(asset.currentValueInVND - asset.value) > 1;
 
           return (
@@ -645,13 +640,13 @@ interface ChartDataItem {
   config: AssetTypeConfigItem;
 }
 
-function AssetChart({ assets }: { assets: Asset[] }) {
-  const total = assets.reduce((sum, asset) => sum + asset.value, 0);
+function AssetChart({ assetsWithRate }: { assetsWithRate: AssetWithRate[] }) {
+  const total = assetsWithRate.reduce((sum, a) => sum + a.currentValueInVND, 0);
 
-  const byType = assets.reduce<Record<string, { value: number; count: number }>>(
+  const byType = assetsWithRate.reduce<Record<string, { value: number; count: number }>>(
     (acc, asset) => {
       if (!acc[asset.type]) acc[asset.type] = { value: 0, count: 0 };
-      acc[asset.type].value += asset.value;
+      acc[asset.type].value += asset.currentValueInVND; // dùng giá live
       acc[asset.type].count += 1;
       return acc;
     },
