@@ -1,4 +1,5 @@
-export type Currency = 'VND' | 'USD' | 'BTC' | 'ETH'| 'ASTER'
+// Currency giờ là string tự do, không còn union cứng
+export type Currency = string
 
 export type AssetType =
   | 'cash'
@@ -12,10 +13,8 @@ export interface Asset {
   _id?: string
   name: string
   type: AssetType
-
-  value: number            // VND
-  originalValue: number    // giá trị gốc
+  value: number
+  originalValue: number
   currency: Currency
-
   note?: string
 }
