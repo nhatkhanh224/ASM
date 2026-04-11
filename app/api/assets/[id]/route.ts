@@ -1,57 +1,85 @@
-import { NextResponse } from 'next/server'
-import { connectDB } from '@/libs/db'
-import { Asset } from '@/models/Asset'
-import { getUserIdFromRequest } from '@/libs/auth'
+import { NextResponse } from "next/server";
+import { connectDB } from "@/libs/db";
+import { Asset } from "@/models/Asset";
+import { getUserIdFromRequest } from "@/libs/auth";
+import { AssetHistory } from "@/models/AssetHistory";
 
 export async function GET(
   request: Request,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
-  const userId = await getUserIdFromRequest(request)
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await getUserIdFromRequest(request);
+  if (!userId)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { id } = await context.params
-  await connectDB()
+  const { id } = await context.params;
+  await connectDB();
 
-  const asset = await Asset.findOne({ _id: id, userId })
-  if (!asset) return NextResponse.json({ error: 'Không tìm thấy tài sản' }, { status: 404 })
+  const asset = await Asset.findOne({ _id: id, userId });
+  if (!asset)
+    return NextResponse.json(
+      { error: "Không tìm thấy tài sản" },
+      { status: 404 },
+    );
 
-  return NextResponse.json(asset)
+  return NextResponse.json(asset);
 }
 
 export async function PUT(
   request: Request,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
-  const userId = await getUserIdFromRequest(request)
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await getUserIdFromRequest(request);
+  if (!userId)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { id } = await context.params
-  await connectDB()
+  const { id } = await context.params;
+  await connectDB();
 
-  const body = await request.json()
+  const body = await request.json();
   const asset = await Asset.findOneAndUpdate(
-    { _id: id, userId },  // chỉ update nếu đúng chủ
+    { _id: id, userId }, // chỉ update nếu đúng chủ
     body,
-    { new: true, runValidators: true }
-  )
-  if (!asset) return NextResponse.json({ error: 'Không tìm thấy tài sản' }, { status: 404 })
+    { new: true, runValidators: true },
+  );
+  if (!asset)
+    return NextResponse.json(
+      { error: "Không tìm thấy tài sản" },
+      { status: 404 },
+    );
+  if (asset) {
+    const rate = 1; // valueInVND tính sẵn ở frontend, hoặc dùng asset.value
+    await AssetHistory.create({
+      assetId: asset._id,
+      userId,
+      originalValue: asset.originalValue,
+      valueInVND: asset.value,
+      currency: asset.currency,
+      note: body.historyNote ?? "",
+      changedAt: new Date(),
+    });
+  }
 
-  return NextResponse.json(asset)
+  return NextResponse.json(asset);
 }
 
 export async function DELETE(
   request: Request,
-  context: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> },
 ) {
-  const userId = await getUserIdFromRequest(request)
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await getUserIdFromRequest(request);
+  if (!userId)
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { id } = await context.params
-  await connectDB()
+  const { id } = await context.params;
+  await connectDB();
 
-  const asset = await Asset.findOneAndDelete({ _id: id, userId })  // chỉ xóa nếu đúng chủ
-  if (!asset) return NextResponse.json({ error: 'Không tìm thấy tài sản' }, { status: 404 })
+  const asset = await Asset.findOneAndDelete({ _id: id, userId }); // chỉ xóa nếu đúng chủ
+  if (!asset)
+    return NextResponse.json(
+      { error: "Không tìm thấy tài sản" },
+      { status: 404 },
+    );
 
-  return NextResponse.json({ message: 'Xóa thành công', asset })
+  return NextResponse.json({ message: "Xóa thành công", asset });
 }
