@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   Wallet, TrendingUp, Home, Coins, Smartphone,
   MoreHorizontal, Plus, Trash2, Edit2, PieChart,
-  ArrowUpRight, ChevronDown, Search,
+  ArrowUpRight, ChevronDown, Search, LogOut, User,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -89,7 +89,6 @@ function getErrorMessage(error: unknown): string {
   return "Có lỗi xảy ra!";
 }
 
-// Đọc text trước rồi parse — không bao giờ crash vì body rỗng
 async function safeParseJson(res: Response): Promise<any | null> {
   try {
     const text = await res.text();
@@ -124,6 +123,75 @@ function applyRates(assets: Asset[], rates: ExchangeRates): AssetWithRate[] {
     const currentValueInVND = (asset.originalValue ?? asset.value) * rate;
     return { ...asset, currentValueInVND };
   });
+}
+
+// ─── UserMenu ─────────────────────────────────────────────────────────────────
+
+interface UserMenuProps {
+  user: { name: string; email: string };
+}
+
+function UserMenu({ user }: UserMenuProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
+    window.location.href = "/login";
+  };
+
+  // Lấy chữ cái đầu tên để làm avatar
+  const initials = user.name
+    .split(" ")
+    .map((w) => w[0])
+    .slice(-2)
+    .join("")
+    .toUpperCase();
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-gray-100 transition-colors"
+      >
+        <div className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+          {initials}
+        </div>
+        <div className="text-left hidden sm:block">
+          <p className="text-sm font-medium text-gray-700 leading-tight">{user.name}</p>
+          <p className="text-xs text-gray-400 leading-tight">{user.email}</p>
+        </div>
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform hidden sm:block ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-52 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden z-50">
+          {/* Profile info */}
+          <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+            <p className="text-sm font-semibold text-gray-800 truncate">{user.name}</p>
+            <p className="text-xs text-gray-400 truncate">{user.email}</p>
+          </div>
+
+          {/* Logout */}
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Đăng xuất
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── CurrencyCombobox ─────────────────────────────────────────────────────────
@@ -248,6 +316,13 @@ export default function AssetManagementApp() {
   const [showForm, setShowForm] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [view, setView] = useState<"list" | "chart">("list");
+  const [user, setUser] = useState<{ name: string; email: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((r) => r.json())
+      .then((d) => { if (d.user) setUser(d.user); });
+  }, []);
 
   const fetchAssets = async () => {
     try {
@@ -308,6 +383,7 @@ export default function AssetManagementApp() {
       <div className="max-w-6xl mx-auto p-6 space-y-6">
         <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
           <div className="flex items-center justify-between mb-6">
+            {/* Logo */}
             <div>
               <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
                 <Wallet className="w-8 h-8 text-indigo-600" />
@@ -315,13 +391,20 @@ export default function AssetManagementApp() {
               </h1>
               <p className="text-gray-500 mt-1">Theo dõi và quản lý tài sản của bạn một cách hiệu quả</p>
             </div>
-            <button
-              onClick={() => { setEditingAsset(null); setShowForm(!showForm); }}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all shadow-md hover:shadow-lg"
-            >
-              <Plus className="w-5 h-5" />
-              Thêm tài sản
-            </button>
+
+            {/* Right side actions */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => { setEditingAsset(null); setShowForm(!showForm); }}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all shadow-md hover:shadow-lg"
+              >
+                <Plus className="w-5 h-5" />
+                <span className="hidden sm:inline">Thêm tài sản</span>
+                <span className="sm:hidden">Thêm</span>
+              </button>
+
+              {user && <UserMenu user={user} />}
+            </div>
           </div>
           <SummaryCards assetsWithRate={assetsWithRate} />
         </div>
@@ -576,7 +659,7 @@ interface AssetListProps {
 
 function AssetList({ assetsWithRate, onDelete, onEdit }: AssetListProps) {
   const total = assetsWithRate.reduce((sum, a) => sum + a.currentValueInVND, 0);
-
+  const sorted = [...assetsWithRate].sort((a, b) => b.currentValueInVND - a.currentValueInVND);
   if (assetsWithRate.length === 0) {
     return (
       <div className="bg-white rounded-2xl shadow-lg p-12 text-center border border-gray-100">
@@ -594,7 +677,7 @@ function AssetList({ assetsWithRate, onDelete, onEdit }: AssetListProps) {
         <p className="text-sm text-gray-500 mt-1">{assetsWithRate.length} tài sản</p>
       </div>
       <div className="divide-y divide-gray-100">
-        {assetsWithRate.map((asset) => {
+        {sorted.map((asset) => {
           const config = ASSET_TYPE_CONFIG[asset.type];
           const Icon = config.icon;
           const percentage = total > 0 ? ((asset.currentValueInVND / total) * 100).toFixed(1) : "0";

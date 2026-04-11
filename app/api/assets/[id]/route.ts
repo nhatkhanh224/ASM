@@ -1,116 +1,57 @@
-// File: app/api/assets/[id]/route.ts
-// Next.js 15 - params phải được await
-
 import { NextResponse } from 'next/server'
 import { connectDB } from '@/libs/db'
 import { Asset } from '@/models/Asset'
+import { getUserIdFromRequest } from '@/libs/auth'
+
+export async function GET(
+  request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const userId = await getUserIdFromRequest(request)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await context.params
+  await connectDB()
+
+  const asset = await Asset.findOne({ _id: id, userId })
+  if (!asset) return NextResponse.json({ error: 'Không tìm thấy tài sản' }, { status: 404 })
+
+  return NextResponse.json(asset)
+}
 
 export async function PUT(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const params = await context.params // Await params
-    console.log('=== PUT REQUEST RECEIVED ===')
-    console.log('ID from params:', params.id)
-    
-    await connectDB()
-    
-    const body = await request.json()
-    console.log('Request body:', body)
-    
-    const asset = await Asset.findByIdAndUpdate(
-      params.id,
-      body,
-      { 
-        new: true,
-        runValidators: true
-      }
-    )
-    
-    console.log('Updated asset:', asset)
-    
-    if (!asset) {
-      return NextResponse.json(
-        { error: 'Không tìm thấy tài sản' },
-        { status: 404 }
-      )
-    }
-    
-    return NextResponse.json(asset)
-    
-  } catch (error: any) {
-    console.error('PUT error:', error)
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    )
-  }
+  const userId = await getUserIdFromRequest(request)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await context.params
+  await connectDB()
+
+  const body = await request.json()
+  const asset = await Asset.findOneAndUpdate(
+    { _id: id, userId },  // chỉ update nếu đúng chủ
+    body,
+    { new: true, runValidators: true }
+  )
+  if (!asset) return NextResponse.json({ error: 'Không tìm thấy tài sản' }, { status: 404 })
+
+  return NextResponse.json(asset)
 }
 
 export async function DELETE(
   request: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  try {
-    const params = await context.params // Await params
-    console.log('=== DELETE REQUEST RECEIVED ===')
-    console.log('ID from params:', params.id)
-    
-    await connectDB()
-    
-    const asset = await Asset.findByIdAndDelete(params.id)
-    
-    console.log('Deleted asset:', asset)
-    
-    if (!asset) {
-      return NextResponse.json(
-        { error: 'Không tìm thấy tài sản' },
-        { status: 404 }
-      )
-    }
-    
-    return NextResponse.json({ 
-      message: 'Xóa thành công',
-      asset 
-    })
-    
-  } catch (error: any) {
-    console.error('DELETE error:', error)
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    )
-  }
-}
+  const userId = await getUserIdFromRequest(request)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-export async function GET(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const params = await context.params // Await params
-    console.log('=== GET REQUEST RECEIVED ===')
-    console.log('ID from params:', params.id)
-    
-    await connectDB()
-    
-    const asset = await Asset.findById(params.id)
-    
-    if (!asset) {
-      return NextResponse.json(
-        { error: 'Không tìm thấy tài sản' },
-        { status: 404 }
-      )
-    }
-    
-    return NextResponse.json(asset)
-    
-  } catch (error: any) {
-    console.error('GET error:', error)
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    )
-  }
+  const { id } = await context.params
+  await connectDB()
+
+  const asset = await Asset.findOneAndDelete({ _id: id, userId })  // chỉ xóa nếu đúng chủ
+  if (!asset) return NextResponse.json({ error: 'Không tìm thấy tài sản' }, { status: 404 })
+
+  return NextResponse.json({ message: 'Xóa thành công', asset })
 }

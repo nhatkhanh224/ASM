@@ -3,7 +3,7 @@ import { Schema, model, models } from 'mongoose'
 const AssetSchema = new Schema(
   {
     name: { type: String, required: true },
-
+    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     type: {
       type: String,
       enum: ['cash', 'bank', 'investment', 'property', 'digital', 'other'],
