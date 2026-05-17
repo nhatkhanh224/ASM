@@ -6,7 +6,7 @@ import {
   MoreHorizontal, Plus, Trash2, Edit2, PieChart,
   ArrowUpRight, ChevronDown, Search, LogOut, Minus, History,
   Target, BarChart2, Bell, BellOff, ShieldAlert, ShieldCheck,
-  RefreshCw, X, Check,
+  RefreshCw, X, Check, Sparkles, RotateCcw, DollarSign,
 } from "lucide-react";
 import { takeSnapshot } from "@/libs/snapshot";
 
@@ -92,8 +92,9 @@ const RISK_CONFIG = {
   high:   { label: "Cao",    color: "text-red-600",   bg: "bg-red-100",   bar: "#ef4444" },
 };
 
-// Coin có thể alert giá
 const ALERTABLE_COINS = ["BTC", "ETH", "BNB", "SOL", "XRP"];
+
+const SCENARIO_STORAGE_KEY = "kvault_scenario_prices";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -141,11 +142,23 @@ function formatTime(dateStr: string) {
   return d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function formatVND(value: number): string {
+  if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(2)} tỷ`;
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} tr`;
+  return value.toLocaleString("vi-VN");
+}
+
+function formatUSD(value: number): string {
+  if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
+  if (value >= 1_000) return `$${(value / 1_000).toFixed(1)}K`;
+  return `$${value.toLocaleString("en-US")}`;
+}
+
 // ─── PriceAlertBanner ─────────────────────────────────────────────────────────
 
 interface AlertItem {
   coin: string;
-  threshold: number; // % thay đổi
+  threshold: number;
   direction: "up" | "down" | "both";
   enabled: boolean;
 }
@@ -166,46 +179,34 @@ function PriceAlertBanner({ exchangeRates }: { exchangeRates: ExchangeRates }) {
   const [triggered, setTriggered] = useState<TriggeredAlert[]>([]);
   const prevRatesRef = useRef<ExchangeRates>({});
 
-  // Lưu alerts vào localStorage mỗi khi thay đổi
   useEffect(() => {
     localStorage.setItem("kvault_price_alerts", JSON.stringify(alerts));
   }, [alerts]);
 
-  // Check alerts mỗi khi rates thay đổi
   useEffect(() => {
     const prev = prevRatesRef.current;
     if (Object.keys(prev).length === 0) {
       prevRatesRef.current = exchangeRates;
       return;
     }
-
     const newTriggered: TriggeredAlert[] = [];
     for (const alert of alerts) {
       if (!alert.enabled) continue;
       const prevRate = prev[alert.coin];
       const currRate = exchangeRates[alert.coin];
       if (!prevRate || !currRate) continue;
-
-      // Rate ở đây = VND/coin, cần lấy USD price = rate/USD_rate
       const usdRate = exchangeRates["USD"] || 26200;
       const prevUSD = prevRate / usdRate;
       const currUSD = currRate / usdRate;
       const changePct = ((currUSD - prevUSD) / prevUSD) * 100;
-
       const shouldTrigger =
         (alert.direction === "both" && Math.abs(changePct) >= alert.threshold) ||
         (alert.direction === "up" && changePct >= alert.threshold) ||
         (alert.direction === "down" && changePct <= -alert.threshold);
-
       if (shouldTrigger) {
-        newTriggered.push({
-          coin: alert.coin,
-          change: changePct,
-          message: `${alert.coin} ${changePct >= 0 ? "tăng" : "giảm"} ${Math.abs(changePct).toFixed(2)}%`,
-        });
+        newTriggered.push({ coin: alert.coin, change: changePct, message: `${alert.coin} ${changePct >= 0 ? "tăng" : "giảm"} ${Math.abs(changePct).toFixed(2)}%` });
       }
     }
-
     if (newTriggered.length > 0) setTriggered((prev) => [...prev, ...newTriggered]);
     prevRatesRef.current = exchangeRates;
   }, [exchangeRates, alerts]);
@@ -218,9 +219,7 @@ function PriceAlertBanner({ exchangeRates }: { exchangeRates: ExchangeRates }) {
         <div key={i} className={`flex items-center justify-between px-4 py-3 rounded-xl border ${t.change >= 0 ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
           <div className="flex items-center gap-2">
             <Bell className={`w-4 h-4 ${t.change >= 0 ? "text-green-600" : "text-red-500"}`} />
-            <span className={`text-sm font-medium ${t.change >= 0 ? "text-green-700" : "text-red-600"}`}>
-              🔔 Alert: {t.message}
-            </span>
+            <span className={`text-sm font-medium ${t.change >= 0 ? "text-green-700" : "text-red-600"}`}>🔔 Alert: {t.message}</span>
           </div>
           <button onClick={() => setTriggered((prev) => prev.filter((_, j) => j !== i))} className="text-gray-400 hover:text-gray-600">
             <X className="w-4 h-4" />
@@ -268,11 +267,7 @@ function GoalSection({ totalVND }: { totalVND: number }) {
   const save = async () => {
     if (!form.targetVND || Number(form.targetVND) <= 0) return;
     setSaving(true);
-    const res = await fetch("/api/goal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetVND: Number(form.targetVND), label: form.label }),
-    });
+    const res = await fetch("/api/goal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ targetVND: Number(form.targetVND), label: form.label }) });
     const data = await res.json();
     setGoal(data);
     setEditing(false);
@@ -289,11 +284,8 @@ function GoalSection({ totalVND }: { totalVND: number }) {
           <div className="p-2 bg-indigo-100 rounded-lg"><Target className="w-5 h-5 text-indigo-600" /></div>
           <h3 className="text-lg font-bold text-gray-800">Mục tiêu tài sản</h3>
         </div>
-        {goal && !editing && (
-          <button onClick={() => setEditing(true)} className="text-sm text-indigo-600 hover:underline">Chỉnh sửa</button>
-        )}
+        {goal && !editing && <button onClick={() => setEditing(true)} className="text-sm text-indigo-600 hover:underline">Chỉnh sửa</button>}
       </div>
-
       {editing ? (
         <div className="space-y-3">
           <div>
@@ -305,9 +297,7 @@ function GoalSection({ totalVND }: { totalVND: number }) {
             <input type="number" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm" value={form.targetVND} onChange={(e) => setForm({ ...form, targetVND: e.target.value })} placeholder="VD: 500000000" />
           </div>
           <div className="flex gap-2">
-            <button onClick={save} disabled={saving} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50">
-              {saving ? "Đang lưu..." : "Lưu mục tiêu"}
-            </button>
+            <button onClick={save} disabled={saving} className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-50">{saving ? "Đang lưu..." : "Lưu mục tiêu"}</button>
             {goal && <button onClick={() => setEditing(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50">Hủy</button>}
           </div>
         </div>
@@ -320,15 +310,9 @@ function GoalSection({ totalVND }: { totalVND: number }) {
             </div>
             <p className={`text-3xl font-bold ${progress >= 100 ? "text-green-600" : "text-indigo-600"}`}>{progress.toFixed(1)}%</p>
           </div>
-
-          {/* Progress bar */}
           <div className="w-full bg-gray-100 rounded-full h-4 overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all duration-700 ${progress >= 100 ? "bg-green-500" : progress >= 75 ? "bg-indigo-500" : progress >= 50 ? "bg-blue-400" : "bg-indigo-300"}`}
-              style={{ width: `${progress}%` }}
-            />
+            <div className={`h-full rounded-full transition-all duration-700 ${progress >= 100 ? "bg-green-500" : progress >= 75 ? "bg-indigo-500" : progress >= 50 ? "bg-blue-400" : "bg-indigo-300"}`} style={{ width: `${progress}%` }} />
           </div>
-
           {progress < 100 ? (
             <p className="text-sm text-gray-500">Còn thiếu <span className="font-semibold text-gray-700">{remaining.toLocaleString()} VND</span> để đạt mục tiêu</p>
           ) : (
@@ -351,51 +335,29 @@ const DISPLAY_CURRENCIES = [
 
 function MultiCurrencySection({ totalVND, exchangeRates }: { totalVND: number; exchangeRates: ExchangeRates }) {
   const [selected, setSelected] = useState("VND");
-
-  const convert = (symbol: string) => {
-    const rate = exchangeRates[symbol] ?? 1;
-    return totalVND / rate;
-  };
-
+  const convert = (symbol: string) => { const rate = exchangeRates[symbol] ?? 1; return totalVND / rate; };
   const cfg = DISPLAY_CURRENCIES.find((c) => c.symbol === selected) ?? DISPLAY_CURRENCIES[0];
   const value = convert(selected);
-
   return (
     <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
       <div className="flex items-center gap-2 mb-4">
         <div className="p-2 bg-blue-100 rounded-lg"><BarChart2 className="w-5 h-5 text-blue-600" /></div>
         <h3 className="text-lg font-bold text-gray-800">Tổng tài sản theo đơn vị</h3>
       </div>
-
-      {/* Currency selector */}
       <div className="flex gap-2 mb-6 flex-wrap">
         {DISPLAY_CURRENCIES.map((c) => (
-          <button
-            key={c.symbol}
-            onClick={() => setSelected(c.symbol)}
-            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${selected === c.symbol ? "bg-blue-600 text-white shadow-md" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
-          >
-            {c.label}
-          </button>
+          <button key={c.symbol} onClick={() => setSelected(c.symbol)} className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${selected === c.symbol ? "bg-blue-600 text-white shadow-md" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>{c.label}</button>
         ))}
       </div>
-
-      {/* Big number */}
       <div className="text-center py-4">
-        <p className="text-4xl font-bold text-gray-800">
-          {value.toLocaleString("vi-VN", { maximumFractionDigits: cfg.decimals })}
-        </p>
+        <p className="text-4xl font-bold text-gray-800">{value.toLocaleString("vi-VN", { maximumFractionDigits: cfg.decimals })}</p>
         <p className="text-lg text-gray-400 mt-1">{cfg.symbol}</p>
       </div>
-
-      {/* All currencies */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-gray-100">
         {DISPLAY_CURRENCIES.map((c) => (
           <div key={c.symbol} onClick={() => setSelected(c.symbol)} className={`p-3 rounded-xl cursor-pointer transition-all ${selected === c.symbol ? "bg-blue-50 border border-blue-200" : "bg-gray-50 hover:bg-gray-100"}`}>
             <p className="text-xs text-gray-400">{c.symbol}</p>
-            <p className="text-sm font-bold text-gray-800 mt-1">
-              {convert(c.symbol).toLocaleString("vi-VN", { maximumFractionDigits: c.decimals })}
-            </p>
+            <p className="text-sm font-bold text-gray-800 mt-1">{convert(c.symbol).toLocaleString("vi-VN", { maximumFractionDigits: c.decimals })}</p>
           </div>
         ))}
       </div>
@@ -410,33 +372,15 @@ function PriceAlertSection({ exchangeRates }: { exchangeRates: ExchangeRates }) 
     try {
       const saved = localStorage.getItem("kvault_price_alerts");
       return saved ? JSON.parse(saved) : ALERTABLE_COINS.map((coin) => ({ coin, threshold: 5, direction: "both" as const, enabled: false }));
-    } catch {
-      return ALERTABLE_COINS.map((coin) => ({ coin, threshold: 5, direction: "both" as const, enabled: false }));
-    }
+    } catch { return ALERTABLE_COINS.map((coin) => ({ coin, threshold: 5, direction: "both" as const, enabled: false })); }
   });
 
-  useEffect(() => {
-    localStorage.setItem("kvault_price_alerts", JSON.stringify(alerts));
-  }, [alerts]);
+  useEffect(() => { localStorage.setItem("kvault_price_alerts", JSON.stringify(alerts)); }, [alerts]);
 
-  const toggle = (coin: string) => {
-    setAlerts((prev) => prev.map((a) => a.coin === coin ? { ...a, enabled: !a.enabled } : a));
-  };
-
-  const updateThreshold = (coin: string, threshold: number) => {
-    setAlerts((prev) => prev.map((a) => a.coin === coin ? { ...a, threshold } : a));
-  };
-
-  const updateDirection = (coin: string, direction: "up" | "down" | "both") => {
-    setAlerts((prev) => prev.map((a) => a.coin === coin ? { ...a, direction } : a));
-  };
-
-  const getUSDPrice = (coin: string) => {
-    const rate = exchangeRates[coin];
-    const usdRate = exchangeRates["USD"] || 26200;
-    if (!rate) return null;
-    return rate / usdRate;
-  };
+  const toggle = (coin: string) => setAlerts((prev) => prev.map((a) => a.coin === coin ? { ...a, enabled: !a.enabled } : a));
+  const updateThreshold = (coin: string, threshold: number) => setAlerts((prev) => prev.map((a) => a.coin === coin ? { ...a, threshold } : a));
+  const updateDirection = (coin: string, direction: "up" | "down" | "both") => setAlerts((prev) => prev.map((a) => a.coin === coin ? { ...a, direction } : a));
+  const getUSDPrice = (coin: string) => { const rate = exchangeRates[coin]; const usdRate = exchangeRates["USD"] || 26200; if (!rate) return null; return rate / usdRate; };
 
   return (
     <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
@@ -445,7 +389,6 @@ function PriceAlertSection({ exchangeRates }: { exchangeRates: ExchangeRates }) 
         <h3 className="text-lg font-bold text-gray-800">Alert tỷ giá</h3>
         <span className="text-xs text-gray-400 ml-1">(so sánh mỗi lần refresh tỷ giá)</span>
       </div>
-
       <div className="space-y-3">
         {alerts.map((alert) => {
           const price = getUSDPrice(alert.coin);
@@ -461,39 +404,17 @@ function PriceAlertSection({ exchangeRates }: { exchangeRates: ExchangeRates }) 
                     {price && <p className="text-xs text-gray-400">${price.toLocaleString("en-US", { maximumFractionDigits: 2 })}</p>}
                   </div>
                 </div>
-
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Direction */}
-                  <select
-                    value={alert.direction}
-                    onChange={(e) => updateDirection(alert.coin, e.target.value as any)}
-                    disabled={!alert.enabled}
-                    className="text-xs px-2 py-1 border border-gray-200 rounded-lg disabled:opacity-40 outline-none"
-                  >
+                  <select value={alert.direction} onChange={(e) => updateDirection(alert.coin, e.target.value as any)} disabled={!alert.enabled} className="text-xs px-2 py-1 border border-gray-200 rounded-lg disabled:opacity-40 outline-none">
                     <option value="both">Tăng hoặc giảm</option>
                     <option value="up">Chỉ tăng</option>
                     <option value="down">Chỉ giảm</option>
                   </select>
-
-                  {/* Threshold */}
                   <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      min="0.1"
-                      max="50"
-                      step="0.5"
-                      value={alert.threshold}
-                      onChange={(e) => updateThreshold(alert.coin, Number(e.target.value))}
-                      disabled={!alert.enabled}
-                      className="w-16 text-xs px-2 py-1 border border-gray-200 rounded-lg text-center disabled:opacity-40 outline-none"
-                    />
+                    <input type="number" min="0.1" max="50" step="0.5" value={alert.threshold} onChange={(e) => updateThreshold(alert.coin, Number(e.target.value))} disabled={!alert.enabled} className="w-16 text-xs px-2 py-1 border border-gray-200 rounded-lg text-center disabled:opacity-40 outline-none" />
                     <span className="text-xs text-gray-500">%</span>
                   </div>
-
-                  {alert.enabled
-                    ? <Bell className="w-4 h-4 text-yellow-500" />
-                    : <BellOff className="w-4 h-4 text-gray-300" />
-                  }
+                  {alert.enabled ? <Bell className="w-4 h-4 text-yellow-500" /> : <BellOff className="w-4 h-4 text-gray-300" />}
                 </div>
               </div>
             </div>
@@ -509,16 +430,10 @@ function PriceAlertSection({ exchangeRates }: { exchangeRates: ExchangeRates }) 
 
 function PortfolioRiskSection({ assetsWithRate, totalVND }: { assetsWithRate: AssetWithRate[]; totalVND: number }) {
   const riskGroups = { low: 0, medium: 0, high: 0 };
-  for (const asset of assetsWithRate) {
-    const risk = ASSET_TYPE_CONFIG[asset.type].risk;
-    riskGroups[risk] += asset.currentValueInVND;
-  }
-
+  for (const asset of assetsWithRate) { const risk = ASSET_TYPE_CONFIG[asset.type].risk; riskGroups[risk] += asset.currentValueInVND; }
   const lowPct = totalVND > 0 ? (riskGroups.low / totalVND) * 100 : 0;
   const medPct = totalVND > 0 ? (riskGroups.medium / totalVND) * 100 : 0;
   const highPct = totalVND > 0 ? (riskGroups.high / totalVND) * 100 : 0;
-
-  // Gợi ý cân bằng
   const suggestions: string[] = [];
   if (highPct > 40) suggestions.push("⚠️ Tài sản rủi ro cao chiếm hơn 40% — cân nhắc giảm crypto/digital.");
   if (lowPct < 20) suggestions.push("💡 Tài sản an toàn (tiền mặt, ngân hàng) dưới 20% — nên tăng để có thanh khoản.");
@@ -531,8 +446,6 @@ function PortfolioRiskSection({ assetsWithRate, totalVND }: { assetsWithRate: As
         <div className="p-2 bg-red-100 rounded-lg"><ShieldAlert className="w-5 h-5 text-red-500" /></div>
         <h3 className="text-lg font-bold text-gray-800">Phân tích rủi ro danh mục</h3>
       </div>
-
-      {/* Risk breakdown */}
       <div className="space-y-3 mb-6">
         {(["low", "medium", "high"] as const).map((risk) => {
           const cfg = RISK_CONFIG[risk];
@@ -543,12 +456,7 @@ function PortfolioRiskSection({ assetsWithRate, totalVND }: { assetsWithRate: As
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
                   <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
-                  <span className="text-xs text-gray-400">
-                    {Object.entries(ASSET_TYPE_CONFIG)
-                      .filter(([, v]) => v.risk === risk)
-                      .map(([, v]) => v.label)
-                      .join(", ")}
-                  </span>
+                  <span className="text-xs text-gray-400">{Object.entries(ASSET_TYPE_CONFIG).filter(([, v]) => v.risk === risk).map(([, v]) => v.label).join(", ")}</span>
                 </div>
                 <div className="text-right">
                   <span className="text-sm font-bold text-gray-800">{pct.toFixed(1)}%</span>
@@ -562,16 +470,10 @@ function PortfolioRiskSection({ assetsWithRate, totalVND }: { assetsWithRate: As
           );
         })}
       </div>
-
-      {/* Suggestions */}
       <div className="space-y-2">
         <p className="text-sm font-semibold text-gray-700 mb-2">Gợi ý:</p>
-        {suggestions.map((s, i) => (
-          <p key={i} className="text-sm text-gray-600 bg-gray-50 px-4 py-2.5 rounded-xl">{s}</p>
-        ))}
+        {suggestions.map((s, i) => (<p key={i} className="text-sm text-gray-600 bg-gray-50 px-4 py-2.5 rounded-xl">{s}</p>))}
       </div>
-
-      {/* Asset breakdown by type */}
       <div className="mt-6 pt-4 border-t border-gray-100">
         <p className="text-sm font-semibold text-gray-700 mb-3">Chi tiết theo loại:</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -583,10 +485,7 @@ function PortfolioRiskSection({ assetsWithRate, totalVND }: { assetsWithRate: As
             return (
               <div key={type} className="p-3 bg-gray-50 rounded-xl flex items-center gap-2">
                 <div className={`p-1.5 rounded-lg ${cfg.color}`}><Icon className="w-3 h-3" /></div>
-                <div>
-                  <p className="text-xs text-gray-500">{cfg.label}</p>
-                  <p className="text-sm font-bold text-gray-800">{pct.toFixed(1)}%</p>
-                </div>
+                <div><p className="text-xs text-gray-500">{cfg.label}</p><p className="text-sm font-bold text-gray-800">{pct.toFixed(1)}%</p></div>
               </div>
             );
           })}
@@ -596,29 +495,242 @@ function PortfolioRiskSection({ assetsWithRate, totalVND }: { assetsWithRate: As
   );
 }
 
+// ─── ScenarioView (tab Kỳ vọng) ───────────────────────────────────────────────
+
+interface ScenarioPrice { [currency: string]: number; }
+
+function ScenarioView({ assets, exchangeRates }: { assets: Asset[]; exchangeRates: ExchangeRates }) {
+  const [scenarioPrices, setScenarioPrices] = useState<ScenarioPrice>({});
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
+
+  const cryptoCurrencies = Array.from(
+    new Set(
+      assets
+        .filter((a) => a.currency !== "VND" && a.currency)
+        .map((a) => a.currency.toUpperCase())
+    )
+  );
+
+  const usdtVnd = exchangeRates["USD"] || 26200;
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SCENARIO_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored) as ScenarioPrice;
+        setScenarioPrices(parsed);
+        const inputs: Record<string, string> = {};
+        for (const [k, v] of Object.entries(parsed)) inputs[k] = v.toString();
+        setInputValues(inputs);
+      }
+    } catch {}
+  }, []);
+
+  const savePrices = useCallback((prices: ScenarioPrice) => {
+    localStorage.setItem(SCENARIO_STORAGE_KEY, JSON.stringify(prices));
+    setScenarioPrices(prices);
+  }, []);
+
+  const handlePriceChange = (currency: string, raw: string) => {
+    setInputValues((prev) => ({ ...prev, [currency]: raw }));
+    const parsed = parseFloat(raw.replace(/,/g, ""));
+    if (!isNaN(parsed) && parsed > 0) savePrices({ ...scenarioPrices, [currency]: parsed });
+  };
+
+  const handleReset = (currency: string) => {
+    const newPrices = { ...scenarioPrices };
+    delete newPrices[currency];
+    savePrices(newPrices);
+    setInputValues((prev) => { const n = { ...prev }; delete n[currency]; return n; });
+  };
+
+  // Tính giá trị kỳ vọng cho từng asset
+  const currentTotalVND = assets.reduce((sum, a) => {
+    const rate = exchangeRates[a.currency] ?? 1;
+    return sum + (a.originalValue ?? a.value) * rate;
+  }, 0);
+
+  let scenarioTotalVND = 0;
+  const assetScenarios = assets.map((asset) => {
+    const currency = asset.currency?.toUpperCase();
+    const currentPriceUSD = (exchangeRates[currency] ?? 1) / usdtVnd;
+    const scenarioPriceUSD = scenarioPrices[currency];
+    const currentValueVND = (asset.originalValue ?? asset.value) * (exchangeRates[currency] ?? 1);
+
+    let scenarioValueVND = currentValueVND;
+    if (scenarioPriceUSD && currentPriceUSD > 0 && currency !== "VND") {
+      const amountInCoin = currentValueVND / (currentPriceUSD * usdtVnd);
+      scenarioValueVND = amountInCoin * scenarioPriceUSD * usdtVnd;
+    }
+
+    scenarioTotalVND += scenarioValueVND;
+    const gain = scenarioValueVND - currentValueVND;
+    const gainPct = currentValueVND > 0 ? (gain / currentValueVND) * 100 : 0;
+
+    return { ...asset, currentValueVND, scenarioValueVND, gain, gainPct, hasScenario: !!scenarioPriceUSD, currentPriceUSD, scenarioPriceUSD: scenarioPriceUSD || null };
+  });
+
+  const totalGain = scenarioTotalVND - currentTotalVND;
+  const totalGainPct = currentTotalVND > 0 ? (totalGain / currentTotalVND) * 100 : 0;
+  const hasAnyScenario = Object.keys(scenarioPrices).length > 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Header summary card */}
+      <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-6 text-white shadow-xl">
+        <div className="flex items-center gap-2 mb-1">
+          <Sparkles className="w-5 h-5 text-indigo-200" />
+          <span className="text-indigo-200 text-sm font-medium">Kịch bản kỳ vọng</span>
+        </div>
+        <div className="flex items-end justify-between flex-wrap gap-4">
+          <div>
+            <p className="text-xs text-indigo-300 mb-1">Danh mục kỳ vọng</p>
+            <p className="text-3xl font-bold tracking-tight">{formatVND(scenarioTotalVND)} <span className="text-lg font-normal text-indigo-200">VND</span></p>
+          </div>
+          <div className="text-right">
+            <p className="text-xs text-indigo-300 mb-1">Tăng thêm</p>
+            <div className={`flex items-center gap-1 text-xl font-bold ${totalGain >= 0 ? "text-emerald-300" : "text-red-300"}`}>
+              {totalGain >= 0 ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
+              {totalGain >= 0 ? "+" : ""}{formatVND(totalGain)} VND
+            </div>
+            <p className={`text-sm font-medium ${totalGainPct >= 0 ? "text-emerald-300" : "text-red-300"}`}>
+              {totalGainPct >= 0 ? "+" : ""}{totalGainPct.toFixed(1)}%
+            </p>
+          </div>
+        </div>
+        {/* Progress bar: hiện tại vs kỳ vọng */}
+        <div className="mt-4 bg-white/10 rounded-full h-2 overflow-hidden">
+          <div className="h-full bg-emerald-400 rounded-full transition-all duration-700"
+            style={{ width: `${Math.min(100, scenarioTotalVND > 0 ? (currentTotalVND / scenarioTotalVND) * 100 : 100)}%` }} />
+        </div>
+        <div className="flex justify-between text-xs text-indigo-300 mt-1">
+          <span>Hiện tại: {formatVND(currentTotalVND)}</span>
+          <span>Kỳ vọng: {formatVND(scenarioTotalVND)}</span>
+        </div>
+      </div>
+
+      {/* Price inputs */}
+      {cryptoCurrencies.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Target className="w-4 h-4 text-indigo-500" />
+            <h3 className="font-semibold text-gray-800 text-sm">Nhập giá kỳ vọng (USD)</h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {cryptoCurrencies.map((currency) => {
+              const currentPriceUSD = (exchangeRates[currency] ?? 0) / usdtVnd;
+              const scenarioPrice = scenarioPrices[currency];
+              const multiplier = scenarioPrice && currentPriceUSD > 0 ? scenarioPrice / currentPriceUSD : null;
+              return (
+                <div key={currency} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                  <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                    <span className="text-indigo-700 font-bold text-xs">{currency.slice(0, 4)}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-semibold text-gray-700">{currency}</span>
+                      {multiplier !== null && (
+                        <span className={`text-xs font-medium px-1.5 py-0.5 rounded-md ${multiplier >= 1 ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-600"}`}>
+                          {multiplier >= 1 ? `×${multiplier.toFixed(1)}` : `÷${(1 / multiplier).toFixed(1)}`}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <span className="text-gray-400 text-xs">$</span>
+                      <input
+                        type="number"
+                        placeholder={currentPriceUSD > 0 ? `Hiện tại: ${currentPriceUSD.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "Nhập giá kỳ vọng..."}
+                        value={inputValues[currency] || ""}
+                        onChange={(e) => handlePriceChange(currency, e.target.value)}
+                        className="w-full bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      {scenarioPrice && (
+                        <button onClick={() => handleReset(currency)} className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0" title="Xóa kỳ vọng">
+                          <RotateCcw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                    {currentPriceUSD > 0 && (
+                      <p className="text-xs text-gray-400 mt-0.5">Giá hiện tại: {formatUSD(currentPriceUSD)}</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Asset breakdown */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-gray-50">
+          <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+            <DollarSign className="w-4 h-4 text-indigo-500" />Chi tiết từng tài sản
+          </h3>
+        </div>
+        <div className="divide-y divide-gray-50">
+          {assetScenarios.length === 0 && (
+            <div className="px-5 py-8 text-center text-gray-400 text-sm">Chưa có tài sản nào</div>
+          )}
+          {assetScenarios.map((asset) => (
+            <div key={asset._id} className="px-5 py-3.5 flex items-center justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-gray-800 text-sm truncate">{asset.name}</p>
+                <p className="text-xs text-gray-400">
+                  {asset.currency.toUpperCase()}
+                  {asset.hasScenario && asset.scenarioPriceUSD && (
+                    <span className="ml-1 text-indigo-400">→ {formatUSD(asset.scenarioPriceUSD)}</span>
+                  )}
+                </p>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <p className="text-sm font-semibold text-gray-800">{formatVND(asset.scenarioValueVND)} VND</p>
+                {asset.hasScenario ? (
+                  <p className={`text-xs font-medium ${asset.gain >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                    {asset.gain >= 0 ? "+" : ""}{formatVND(asset.gain)} ({asset.gainPct >= 0 ? "+" : ""}{asset.gainPct.toFixed(1)}%)
+                  </p>
+                ) : (
+                  <p className="text-xs text-gray-400">{formatVND(asset.currentValueVND)} hiện tại</p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="px-5 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+          <span className="text-sm font-semibold text-gray-700">Tổng kỳ vọng</span>
+          <div className="text-right">
+            <p className="text-base font-bold text-indigo-700">{formatVND(scenarioTotalVND)} VND</p>
+            {hasAnyScenario && (
+              <p className={`text-xs font-semibold ${totalGain >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                {totalGain >= 0 ? "+" : ""}{formatVND(totalGain)} ({totalGainPct >= 0 ? "+" : ""}{totalGainPct.toFixed(1)}%)
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {!hasAnyScenario && (
+        <p className="text-center text-xs text-gray-400 pb-2">Nhập giá kỳ vọng cho từng coin ở trên để xem kết quả ✨</p>
+      )}
+    </div>
+  );
+}
+
 // ─── UserMenu ─────────────────────────────────────────────────────────────────
 
-interface UserMenuProps {
-  user: { name: string; email: string };
-}
+interface UserMenuProps { user: { name: string; email: string }; }
 
 function UserMenu({ user }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
+    function handleClickOutside(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/login";
-  };
-
+  const handleLogout = async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/login"; };
   const initials = user.name.split(" ").map((w) => w[0]).slice(-2).join("").toUpperCase();
 
   return (
@@ -648,11 +760,7 @@ function UserMenu({ user }: UserMenuProps) {
 
 // ─── CurrencyCombobox ─────────────────────────────────────────────────────────
 
-interface CurrencyComboboxProps {
-  value: string;
-  onChange: (symbol: string) => void;
-  disabled?: boolean;
-}
+interface CurrencyComboboxProps { value: string; onChange: (symbol: string) => void; disabled?: boolean; }
 
 function CurrencyCombobox({ value, onChange, disabled }: CurrencyComboboxProps) {
   const [open, setOpen] = useState(false);
@@ -660,9 +768,7 @@ function CurrencyCombobox({ value, onChange, disabled }: CurrencyComboboxProps) 
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
+    function handleClickOutside(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -709,15 +815,7 @@ function CurrencyCombobox({ value, onChange, disabled }: CurrencyComboboxProps) 
 
 // ─── AssetHistoryList ─────────────────────────────────────────────────────────
 
-interface HistoryEntry {
-  _id: string;
-  assetId: string;
-  originalValue: number;
-  valueInVND: number;
-  currency: string;
-  note: string;
-  changedAt: string;
-}
+interface HistoryEntry { _id: string; assetId: string; originalValue: number; valueInVND: number; currency: string; note: string; changedAt: string; }
 
 function AssetHistoryList({ assets }: { assets: Asset[] }) {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -728,10 +826,8 @@ function AssetHistoryList({ assets }: { assets: Asset[] }) {
     setLoading(true);
     if (selectedAsset === "all") {
       Promise.all(assets.map((a) => fetch(`/api/assets/${a._id}/history`).then((r) => r.json()).then((data) => (Array.isArray(data) ? data : []))))
-        .then((results) => {
-          const all = results.flat().sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime());
-          setHistory(all);
-        }).finally(() => setLoading(false));
+        .then((results) => { const all = results.flat().sort((a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime()); setHistory(all); })
+        .finally(() => setLoading(false));
     } else {
       fetch(`/api/assets/${selectedAsset}/history`).then((r) => r.json())
         .then((data) => { if (Array.isArray(data)) setHistory(data); })
@@ -880,7 +976,7 @@ export default function AssetManagementApp() {
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
   const [showForm, setShowForm] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
-  const [view, setView] = useState<"list" | "chart" | "history" | "analysis">("list");
+  const [view, setView] = useState<"list" | "chart" | "history" | "analysis" | "scenario">("list");
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
 
   useEffect(() => {
@@ -914,11 +1010,10 @@ export default function AssetManagementApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assets.length]);
 
-  // Auto refresh rates mỗi 5 phút để trigger alert
   useEffect(() => {
     const interval = setInterval(() => {
       fetchExchangeRatesFromAPI([]).then((rates) => { if (rates) setExchangeRates(rates); });
-    }, 5 * 60 * 1000);
+    }, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -948,7 +1043,6 @@ export default function AssetManagementApp() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50">
       <div className="max-w-6xl mx-auto p-6 space-y-4">
 
-        {/* Price Alert Banner — hiện ở đầu trang */}
         <PriceAlertBanner exchangeRates={exchangeRates} />
 
         <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
@@ -984,10 +1078,11 @@ export default function AssetManagementApp() {
         {/* View tabs */}
         <div className="flex justify-end gap-2 flex-wrap">
           {([
-            { key: "list", label: "Danh sách", icon: null },
-            { key: "chart", label: "Biểu đồ", icon: <PieChart className="w-4 h-4" /> },
-            { key: "history", label: "Lịch sử", icon: <History className="w-4 h-4" /> },
-            { key: "analysis", label: "Phân tích", icon: <BarChart2 className="w-4 h-4" /> },
+            { key: "list",     label: "Danh sách", icon: null },
+            { key: "chart",    label: "Biểu đồ",   icon: <PieChart className="w-4 h-4" /> },
+            { key: "history",  label: "Lịch sử",   icon: <History className="w-4 h-4" /> },
+            { key: "analysis", label: "Phân tích",  icon: <BarChart2 className="w-4 h-4" /> },
+            { key: "scenario", label: "Kỳ vọng",   icon: <Sparkles className="w-4 h-4" /> },
           ] as const).map((tab) => (
             <button key={tab.key} onClick={() => setView(tab.key)} className={`px-4 py-2 rounded-lg transition-all flex items-center gap-2 ${view === tab.key ? "bg-indigo-600 text-white shadow-md" : "bg-white text-gray-600 hover:bg-gray-50"}`}>
               {tab.icon}{tab.label}
@@ -995,10 +1090,11 @@ export default function AssetManagementApp() {
           ))}
         </div>
 
-        {view === "list" && <AssetList assetsWithRate={assetsWithRate} onDelete={handleDelete} onEdit={handleEdit} />}
-        {view === "chart" && <AssetChart assetsWithRate={assetsWithRate} />}
-        {view === "history" && <HistoryView assets={assets} />}
+        {view === "list"     && <AssetList assetsWithRate={assetsWithRate} onDelete={handleDelete} onEdit={handleEdit} />}
+        {view === "chart"    && <AssetChart assetsWithRate={assetsWithRate} />}
+        {view === "history"  && <HistoryView assets={assets} />}
         {view === "analysis" && <AnalysisView assetsWithRate={assetsWithRate} exchangeRates={exchangeRates} totalVND={totalVND} />}
+        {view === "scenario" && <ScenarioView assets={assets} exchangeRates={exchangeRates} />}
       </div>
     </div>
   );
@@ -1036,13 +1132,7 @@ function SummaryCards({ assetsWithRate }: { assetsWithRate: AssetWithRate[] }) {
 
 // ─── AssetForm ────────────────────────────────────────────────────────────────
 
-interface AssetFormProps {
-  onCreated: () => void;
-  onCancel: () => void;
-  editingAsset: Asset | null;
-  exchangeRates: ExchangeRates;
-  onNewCurrency: (symbol: string) => void;
-}
+interface AssetFormProps { onCreated: () => void; onCancel: () => void; editingAsset: Asset | null; exchangeRates: ExchangeRates; onNewCurrency: (symbol: string) => void; }
 
 function AssetForm({ onCreated, onCancel, editingAsset, exchangeRates, onNewCurrency }: AssetFormProps) {
   const [submitting, setSubmitting] = useState(false);
