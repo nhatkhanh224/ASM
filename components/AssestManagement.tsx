@@ -129,6 +129,22 @@ async function fetchExchangeRatesFromAPI(extraCoins: string[] = []): Promise<Exc
   }
 }
 
+// ── Retry với exponential backoff: 1s → 2s → 4s → 8s → 16s ──────────────────
+async function fetchRatesWithRetry(
+  extraCoins: string[] = [],
+  maxRetries = 5,
+  delayMs = 1000,
+): Promise<ExchangeRates | null> {
+  for (let i = 0; i < maxRetries; i++) {
+    const rates = await fetchExchangeRatesFromAPI(extraCoins);
+    if (rates) return rates;
+    if (i < maxRetries - 1) {
+      await new Promise((r) => setTimeout(r, delayMs * Math.pow(2, i)));
+    }
+  }
+  return null;
+}
+
 function applyRates(assets: Asset[], rates: ExchangeRates): AssetWithRate[] {
   return assets.map((asset) => {
     const rate = rates[asset.currency] ?? 1;
@@ -655,11 +671,12 @@ function HistoryView({ assets }: { assets: Asset[] }) {
 export default function AssetManagementApp() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [exchangeRates, setExchangeRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
+  const [ratesReady, setRatesReady] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [view, setView] = useState<"list" | "chart" | "history" | "analysis" | "scenario">("list");
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
-  const [showShareCard, setShowShareCard] = useState(false); // ← MỚI
+  const [showShareCard, setShowShareCard] = useState(false);
 
   useEffect(() => { fetch("/api/auth/me").then((r) => r.json()).then((d) => { if (d.user) setUser(d.user); }); }, []);
 
@@ -672,16 +689,44 @@ export default function AssetManagementApp() {
     } catch (e) { console.error("fetchAssets error:", e); }
   };
 
-  const refreshRates = async (currentAssets: Asset[]) => {
+  const getExtraCoins = (currentAssets: Asset[]) => {
     const defaultCoins = new Set(["VND", "USD", "BTC", "ETH", "BNB", "SOL", "ASTER"]);
-    const extraCoins = [...new Set(currentAssets.map((a) => a.currency))].filter((c) => !defaultCoins.has(c));
-    const rates = await fetchExchangeRatesFromAPI(extraCoins);
-    if (rates) setExchangeRates(rates);
+    return [...new Set(currentAssets.map((a) => a.currency))].filter((c) => !defaultCoins.has(c));
   };
 
-  useEffect(() => { fetchAssets(); fetchExchangeRatesFromAPI([]).then((rates) => { if (rates) setExchangeRates(rates); }); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-  useEffect(() => { if (assets.length > 0) refreshRates(assets); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [assets.length]);
-  useEffect(() => { const interval = setInterval(() => { fetchExchangeRatesFromAPI([]).then((rates) => { if (rates) setExchangeRates(rates); }); }, 10 * 60 * 1000); return () => clearInterval(interval); }, []);
+  // 1. Load assets + rates khi mount, dùng retry
+  useEffect(() => {
+    fetchAssets();
+    fetchRatesWithRetry([]).then((rates) => { if (rates) { setExchangeRates(rates); setRatesReady(true); } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 2. Khi assets load xong, fetch rates kèm extra coins (retry)
+  useEffect(() => {
+    if (assets.length === 0) return;
+    const extraCoins = getExtraCoins(assets);
+    fetchRatesWithRetry(extraCoins).then((rates) => { if (rates) { setExchangeRates(rates); setRatesReady(true); } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets.length]);
+
+  // 3. Nếu rates vẫn là default sau khi assets đã có → retry thêm
+  useEffect(() => {
+    if (assets.length === 0) return;
+    const isStillDefault = Object.keys(exchangeRates).length <= 5;
+    if (!isStillDefault) return;
+    const extraCoins = getExtraCoins(assets);
+    fetchRatesWithRetry(extraCoins).then((rates) => { if (rates) { setExchangeRates(rates); setRatesReady(true); } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets]);
+
+  // 4. Auto refresh mỗi 10 phút (không cần retry)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchExchangeRatesFromAPI(getExtraCoins(assets)).then((rates) => { if (rates) setExchangeRates(rates); });
+    }, 10 * 60 * 1000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets]);
 
   const assetsWithRate = applyRates(assets, exchangeRates);
   const totalVND = assetsWithRate.reduce((sum, a) => sum + a.currentValueInVND, 0);
@@ -715,13 +760,8 @@ export default function AssetManagementApp() {
               <p className="text-gray-500 mt-1">Theo dõi và quản lý tài sản của bạn một cách hiệu quả</p>
             </div>
             <div className="flex items-center gap-3">
-              {/* ← NÚT SHARE MỚI */}
-              <button
-                onClick={() => setShowShareCard(true)}
-                className="flex items-center gap-2 px-4 py-3 rounded-xl border border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm"
-              >
-                <Share2 className="w-5 h-5" />
-                <span className="hidden sm:inline text-sm font-medium">Chia sẻ</span>
+              <button onClick={() => setShowShareCard(true)} className="flex items-center gap-2 px-4 py-3 rounded-xl border border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm">
+                <Share2 className="w-5 h-5" /><span className="hidden sm:inline text-sm font-medium">Chia sẻ</span>
               </button>
               <button onClick={() => { setEditingAsset(null); setShowForm(!showForm); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all shadow-md hover:shadow-lg">
                 <Plus className="w-5 h-5" /><span className="hidden sm:inline">Thêm tài sản</span><span className="sm:hidden">Thêm</span>
@@ -729,7 +769,7 @@ export default function AssetManagementApp() {
               {user && <UserMenu user={user} />}
             </div>
           </div>
-          <SummaryCards assetsWithRate={assetsWithRate} />
+          <SummaryCards assetsWithRate={assetsWithRate} ratesReady={ratesReady} />
         </div>
 
         {showForm && (
@@ -738,7 +778,7 @@ export default function AssetManagementApp() {
             onCreated={async () => { await fetchAssets(); await refreshAndSnapshot(exchangeRates); setShowForm(false); setEditingAsset(null); }}
             onCancel={() => { setShowForm(false); setEditingAsset(null); }}
             editingAsset={editingAsset}
-            onNewCurrency={(symbol) => { fetchExchangeRatesFromAPI([symbol]).then((r) => { if (r) setExchangeRates((prev) => ({ ...prev, ...r })); }); }}
+            onNewCurrency={(symbol) => { fetchRatesWithRetry([symbol]).then((r) => { if (r) setExchangeRates((prev) => ({ ...prev, ...r })); }); }}
           />
         )}
 
@@ -763,7 +803,6 @@ export default function AssetManagementApp() {
         {view === "analysis" && <AnalysisView assetsWithRate={assetsWithRate} exchangeRates={exchangeRates} totalVND={totalVND} />}
         {view === "scenario" && <ScenarioView assets={assets} exchangeRates={exchangeRates} />}
 
-        {/* ← SHARE CARD MODAL MỚI */}
         {showShareCard && (
           <ShareCard
             assetsWithRate={assetsWithRate}
@@ -778,10 +817,33 @@ export default function AssetManagementApp() {
 
 // ─── SummaryCards ─────────────────────────────────────────────────────────────
 
-function SummaryCards({ assetsWithRate }: { assetsWithRate: AssetWithRate[] }) {
+function SummaryCards({ assetsWithRate, ratesReady }: { assetsWithRate: AssetWithRate[]; ratesReady: boolean }) {
   const total = assetsWithRate.reduce((sum, a) => sum + a.currentValueInVND, 0);
   const byType = assetsWithRate.reduce<Record<string, number>>((acc, asset) => { acc[asset.type] = (acc[asset.type] ?? 0) + asset.currentValueInVND; return acc; }, {});
   const sortedTypes = Object.entries(byType).sort(([, a], [, b]) => b - a).slice(0, 3);
+
+  // Skeleton shimmer khi rates chưa ready
+  if (!ratesReady) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-5 text-white">
+          <div className="flex items-center justify-between mb-2"><span className="text-indigo-100">Tổng tài sản</span><ArrowUpRight className="w-5 h-5 text-indigo-200" /></div>
+          <div className="h-9 w-36 bg-indigo-400/50 rounded-lg animate-pulse mb-1" />
+          <div className="h-4 w-12 bg-indigo-400/40 rounded animate-pulse" />
+        </div>
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="bg-white rounded-xl p-5 border border-gray-100">
+            <div className="flex items-center justify-between mb-3">
+              <div className="h-4 w-20 bg-gray-200 rounded animate-pulse" />
+              <div className="w-8 h-8 bg-gray-100 rounded-lg animate-pulse" />
+            </div>
+            <div className="h-8 w-28 bg-gray-200 rounded-lg animate-pulse mb-2" />
+            <div className="h-3 w-24 bg-gray-100 rounded animate-pulse" />
+          </div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 rounded-xl p-5 text-white">
