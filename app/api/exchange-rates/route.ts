@@ -228,6 +228,30 @@ const fetchFromDexScreener = async (symbols: string[]): Promise<Record<string, n
   return result;
 };
 
+// ─── Source 5: Gold Prices (vang.today) ──────────────────────────────────────
+
+const fetchGoldPrices = async (): Promise<Record<string, number>> => {
+  try {
+    const res = await fetchWithTimeout("https://www.vang.today/api/prices", {}, 5000);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await safeJson(res);
+    const goldRates: Record<string, number> = {};
+    if (data?.success && data?.prices) {
+      if (data.prices.SJL1L10?.buy) {
+        goldRates["SJC"] = Number(data.prices.SJL1L10.buy);
+      }
+      if (data.prices.SJ9999?.buy) {
+        goldRates["SJ9999"] = Number(data.prices.SJ9999.buy);
+      }
+    }
+    console.log("✅ Gold prices fetched:", Object.keys(goldRates).length, "types");
+    return goldRates;
+  } catch (e) {
+    console.error("❌ fetchGoldPrices failed:", e instanceof Error ? e.message : e);
+    return {};
+  }
+};
+
 // ─── Fetch fresh rates from all sources ──────────────────────────────────────
 
 const fetchFreshRates = async (extraSymbols: string[]): Promise<Record<string, number>> => {
@@ -236,11 +260,12 @@ const fetchFreshRates = async (extraSymbols: string[]): Promise<Record<string, n
   const allSymbols   = [...new Set([...knownSymbols, ...extraSymbols.map(s => s.toUpperCase())])];
   const extraUpper   = extraSymbols.map(s => s.toUpperCase());
 
-  const [binance, gecko, cryptoCompare, dex] = await Promise.allSettled([
+  const [binance, gecko, cryptoCompare, dex, gold] = await Promise.allSettled([
     fetchFromBinance(allSymbols),
     fetchFromCoinGecko(allSymbols),
     fetchFromCryptoCompare(allSymbols),
     fetchFromDexScreener(extraUpper), // always DexScreener for extra coins
+    fetchGoldPrices(),
   ]);
 
   // Merge: hardcode (lowest) → CryptoCompare → CoinGecko → Binance → DexScreener for extras (highest for extras)
@@ -253,6 +278,16 @@ const fetchFreshRates = async (extraSymbols: string[]): Promise<Record<string, n
 
   const rates: Record<string, number> = { VND: 1, USD: usdtToVND };
   for (const [sym, p] of Object.entries(usdPrices)) { if (p > 0) rates[sym] = Math.round(p * usdtToVND); }
+
+  // Merge Gold Prices
+  if (gold.status === "fulfilled") {
+    for (const [sym, p] of Object.entries(gold.value)) {
+      if (p > 0) rates[sym] = p;
+    }
+  }
+  // Fallbacks if not fetched
+  if (!rates["SJC"]) rates["SJC"] = 153000000;
+  if (!rates["SJ9999"]) rates["SJ9999"] = 152800000;
 
   const notFound = extraSymbols.filter(s => !rates[s.toUpperCase()]);
   if (notFound.length > 0) console.warn("⚠️ No price:", notFound.join(", "));

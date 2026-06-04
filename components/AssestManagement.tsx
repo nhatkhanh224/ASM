@@ -9,6 +9,7 @@ import {
   BarChart2,
   Sparkles,
   Share2,
+  DollarSign,
 } from "lucide-react";
 import { takeSnapshot } from "@/libs/snapshot";
 import { Asset, ExchangeRates } from "@/types/asset";
@@ -32,6 +33,7 @@ import AssetChart from "@/components/AssetChart";
 import HistoryView from "@/components/HistoryView";
 import AnalysisView from "@/components/AnalysisView";
 import ScenarioView from "@/components/ScenarioView";
+import TransactionView from "@/components/TransactionView";
 
 export default function AssetManagementApp() {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -42,7 +44,7 @@ export default function AssetManagementApp() {
   const [showForm, setShowForm] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [view, setView] = useState<
-    "list" | "chart" | "history" | "analysis" | "scenario"
+    "list" | "chart" | "history" | "analysis" | "scenario" | "transactions"
   >("list");
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
   const [showShareCard, setShowShareCard] = useState(false);
@@ -174,11 +176,11 @@ export default function AssetManagementApp() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50">
+    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-50/70 via-slate-50 to-blue-50/70 text-slate-800">
       <div className="max-w-6xl mx-auto p-6 space-y-4">
         <PriceAlertBanner exchangeRates={exchangeRates} />
 
-        <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
+        <div className="bg-white/80 backdrop-blur-md rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 border border-slate-200/50">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
@@ -192,7 +194,7 @@ export default function AssetManagementApp() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowShareCard(true)}
-                className="flex items-center gap-2 px-4 py-3 rounded-xl border border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm"
+                className="flex items-center gap-2 px-4 py-3 rounded-xl border border-indigo-200 bg-white text-indigo-600 hover:bg-indigo-50 transition-all shadow-sm cursor-pointer"
               >
                 <Share2 className="w-5 h-5" />
                 <span className="hidden sm:inline text-sm font-medium">
@@ -204,7 +206,7 @@ export default function AssetManagementApp() {
                   setEditingAsset(null);
                   setShowForm(!showForm);
                 }}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all shadow-md hover:shadow-lg"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all shadow-md hover:shadow-lg cursor-pointer"
               >
                 <Plus className="w-5 h-5" />
                 <span className="hidden sm:inline">Thêm tài sản</span>
@@ -244,10 +246,15 @@ export default function AssetManagementApp() {
         )}
 
         {/* View tabs */}
-        <div className="flex justify-end gap-2 flex-wrap">
+        <div className="flex justify-end p-1 bg-slate-100/70 backdrop-blur-sm rounded-xl border border-slate-200/50 gap-1 flex-wrap self-end max-w-fit ml-auto">
           {(
             [
-              { key: "list", label: "Danh sách", icon: null },
+              { key: "list", label: "Danh sách", icon: <Wallet className="w-4 h-4" /> },
+              {
+                key: "transactions",
+                label: "Giao dịch",
+                icon: <DollarSign className="w-4 h-4" />,
+              },
               {
                 key: "chart",
                 label: "Biểu đồ",
@@ -273,10 +280,10 @@ export default function AssetManagementApp() {
             <button
               key={tab.key}
               onClick={() => setView(tab.key)}
-              className={`px-4 py-2 rounded-lg transition-all flex items-center gap-2 ${
+              className={`px-4 py-2 rounded-lg transition-all duration-200 flex items-center gap-2 text-sm font-semibold cursor-pointer ${
                 view === tab.key
-                  ? "bg-indigo-600 text-white shadow-md"
-                  : "bg-white text-gray-600 hover:bg-gray-50"
+                  ? "bg-white text-indigo-600 shadow-[0_2px_8px_rgba(0,0,0,0.06)] border border-slate-200/20 scale-[1.02]"
+                  : "text-slate-600 hover:text-indigo-600 hover:bg-white/40"
               }`}
             >
               {tab.icon}
@@ -291,6 +298,9 @@ export default function AssetManagementApp() {
             onDelete={handleDelete}
             onEdit={handleEdit}
           />
+        )}
+        {view === "transactions" && (
+          <TransactionView assets={assets} exchangeRates={exchangeRates} />
         )}
         {view === "chart" && <AssetChart assetsWithRate={assetsWithRate} />}
         {view === "history" && <HistoryView assets={assets} />}

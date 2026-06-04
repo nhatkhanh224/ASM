@@ -35,7 +35,7 @@ export default function ScenarioView({
   const cryptoCurrencies = Array.from(
     new Set(
       assets
-        .filter((a) => a.currency !== "VND" && a.currency)
+        .filter((a) => a.currency !== "VND" && a.currency !== "SJC" && a.currency !== "SJ9999" && a.currency)
         .map((a) => a.currency.toUpperCase())
     )
   );

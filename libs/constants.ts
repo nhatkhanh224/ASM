@@ -4,6 +4,7 @@ bank: 'Ngân hàng',
 investment: 'Đầu tư',
 property: 'BĐS',
 digital: 'Tài sản số',
+gold: 'Vàng',
 other: 'Khác',
 }
 
@@ -14,5 +15,6 @@ bank: 'bg-blue-100 text-blue-700',
 investment: 'bg-purple-100 text-purple-700',
 property: 'bg-orange-100 text-orange-700',
 digital: 'bg-pink-100 text-pink-700',
+gold: 'bg-amber-100 text-amber-700',
 other: 'bg-gray-100 text-gray-700',
 }

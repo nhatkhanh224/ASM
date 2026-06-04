@@ -49,14 +49,20 @@ export default function AssetList({
               : "0";
           const hasRateChanged = Math.abs(asset.currentValueInVND - asset.value) > 1;
 
+          const isGold = asset.type === "gold";
+
           return (
             <div
               key={asset._id}
-              className="p-6 hover:bg-gray-50 transition-colors group"
+              className={`p-6 transition-all duration-300 group ${
+                isGold
+                  ? "bg-gradient-to-r from-amber-500/5 via-yellow-500/2 to-transparent hover:from-amber-500/10 border-l-4 border-amber-400"
+                  : "hover:bg-slate-50/50"
+              }`}
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4 flex-1">
-                  <div className={`p-3 rounded-xl ${config.color}`}>
+                  <div className={`p-3 rounded-xl ${config.color} ${isGold ? "shadow-[0_0_12px_rgba(245,158,11,0.25)]" : ""}`}>
                     <Icon className="w-6 h-6" />
                   </div>
                   <div className="flex-1">

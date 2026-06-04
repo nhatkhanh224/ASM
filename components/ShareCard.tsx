@@ -46,8 +46,8 @@ type TemplateId = typeof TEMPLATES[number]["id"];
 
 // ─── Data maps ────────────────────────────────────────────────────────────────
 
-const TYPE_LABEL: Record<string,string> = { cash:"Tiền mặt", bank:"Ngân hàng", investment:"Đầu tư", property:"BĐS", digital:"Tài sản số", other:"Khác" };
-const TYPE_COLOR: Record<string,string> = { cash:"#10b981", bank:"#3b82f6", investment:"#a855f7", property:"#f97316", digital:"#06b6d4", other:"#6b7280" };
+const TYPE_LABEL: Record<string,string> = { cash:"Tiền mặt", bank:"Ngân hàng", investment:"Đầu tư", property:"BĐS", digital:"Tài sản số", gold:"Vàng", other:"Khác" };
+const TYPE_COLOR: Record<string,string> = { cash:"#10b981", bank:"#3b82f6", investment:"#a855f7", property:"#f97316", digital:"#06b6d4", gold:"#f59e0b", other:"#6b7280" };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

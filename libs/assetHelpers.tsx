@@ -1,12 +1,14 @@
 import React from "react";
 import {
-  Wallet, Coins, TrendingUp, Home, Smartphone, MoreHorizontal
+  Wallet, Coins, TrendingUp, Home, Smartphone, MoreHorizontal, Gem
 } from "lucide-react";
 import { Asset, AssetType, Currency, AssetWithRate, ExchangeRates, AssetTypeConfig } from "@/types/asset";
 
 export const POPULAR_CURRENCIES: { symbol: string; name: string }[] = [
   { symbol: "VND", name: "Việt Nam Đồng" },
   { symbol: "USD", name: "US Dollar" },
+  { symbol: "SJC", name: "Vàng SJC 9999" },
+  { symbol: "SJ9999", name: "Vàng Nhẫn SJC 9999" },
   { symbol: "BTC", name: "Bitcoin" },
   { symbol: "ETH", name: "Ethereum" },
   { symbol: "BNB", name: "BNB" },
@@ -36,6 +38,8 @@ export const DEFAULT_EXCHANGE_RATES: ExchangeRates = {
   BTC: 77443.11 * 26200,
   ETH: 2400 * 26200,
   ASTER: 0.5702 * 26200,
+  SJC: 153000000,
+  SJ9999: 152800000,
 };
 
 export const ASSET_TYPE_CONFIG: AssetTypeConfig = {
@@ -44,6 +48,7 @@ export const ASSET_TYPE_CONFIG: AssetTypeConfig = {
   investment: { icon: TrendingUp,     label: "Đầu tư",       color: "bg-purple-100 text-purple-700", chartColor: "#a855f7", risk: "medium" },
   property:   { icon: Home,           label: "Bất động sản", color: "bg-orange-100 text-orange-700", chartColor: "#f97316", risk: "medium" },
   digital:    { icon: Smartphone,     label: "Tài sản số",   color: "bg-cyan-100 text-cyan-700",     chartColor: "#06b6d4", risk: "high" },
+  gold:       { icon: Gem,            label: "Vàng",         color: "bg-amber-100 text-amber-700",   chartColor: "#f59e0b", risk: "low" },
   other:      { icon: MoreHorizontal, label: "Khác",         color: "bg-gray-100 text-gray-700",     chartColor: "#6b7280", risk: "medium" },
 };
 

@@ -9,6 +9,7 @@ export type AssetType =
   | "investment"
   | "property"
   | "digital"
+  | "gold"
   | "other";
 
 export interface Asset {

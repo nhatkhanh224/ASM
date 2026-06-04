@@ -28,7 +28,7 @@ export default function AssetForm({
   const [form, setForm] = useState({
     name: editingAsset?.name ?? "",
     type: (editingAsset?.type ?? "cash") as AssetType,
-    originalValue: editingAsset?.originalValue ?? 0,
+    originalValue: editingAsset?.originalValue !== undefined ? String(editingAsset.originalValue) : "",
     currency: editingAsset?.currency ?? "VND",
     value: editingAsset?.value ?? 0,
     note: editingAsset?.note ?? "",
@@ -36,16 +36,20 @@ export default function AssetForm({
 
   const handleCurrencyChange = (symbol: string) => {
     const rate = exchangeRates[symbol] ?? 1;
-    setForm((f) => ({
-      ...f,
-      currency: symbol,
-      value: f.originalValue * rate,
-    }));
+    setForm((f) => {
+      const numOriginal = Number(f.originalValue) || 0;
+      return {
+        ...f,
+        currency: symbol,
+        value: numOriginal * rate,
+      };
+    });
     if (!exchangeRates[symbol]) onNewCurrency(symbol);
   };
 
   const submit = async () => {
-    if (!form.name || form.originalValue <= 0) {
+    const numOriginalValue = Number(form.originalValue);
+    if (!form.name || isNaN(numOriginalValue) || numOriginalValue <= 0) {
       alert("Vui lòng nhập đầy đủ thông tin!");
       return;
     }
@@ -53,10 +57,15 @@ export default function AssetForm({
     try {
       const url = editingAsset ? `/api/assets/${editingAsset._id}` : "/api/assets";
       const method = editingAsset ? "PUT" : "POST";
+      const payload = {
+        ...form,
+        originalValue: numOriginalValue,
+        value: numOriginalValue * currentRate,
+      };
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         const errData = await safeParseJson(res);
@@ -96,9 +105,21 @@ export default function AssetForm({
           </label>
           <select
             value={form.type}
-            onChange={(e) =>
-              setForm({ ...form, type: e.target.value as AssetType })
-            }
+            onChange={(e) => {
+              const newType = e.target.value as AssetType;
+              let newCurrency = form.currency;
+              if (newType === "gold" && form.currency !== "SJC" && form.currency !== "SJ9999") {
+                newCurrency = "SJC";
+              }
+              const rate = exchangeRates[newCurrency] ?? 1;
+              setForm((f) => ({
+                ...f,
+                type: newType,
+                currency: newCurrency,
+                value: (Number(f.originalValue) || 0) * rate,
+              }));
+              if (!exchangeRates[newCurrency]) onNewCurrency(newCurrency);
+            }}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
             disabled={submitting}
           >
@@ -113,11 +134,58 @@ export default function AssetForm({
           <label className="block text-sm font-medium text-gray-700 mb-2">
             Đơn vị tiền *
           </label>
-          <CurrencyCombobox
-            value={form.currency}
-            onChange={handleCurrencyChange}
-            disabled={submitting}
-          />
+          {form.type === "gold" ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { symbol: "SJC", label: "SJC 9999" },
+                  { symbol: "SJ9999", label: "Nhẫn 9999" },
+                  { symbol: "CUSTOM", label: "Khác" }
+                ].map((opt) => {
+                  const isSelected = opt.symbol === "CUSTOM" 
+                    ? (form.currency !== "SJC" && form.currency !== "SJ9999")
+                    : form.currency === opt.symbol;
+                  return (
+                    <button
+                      key={opt.symbol}
+                      type="button"
+                      onClick={() => {
+                        if (opt.symbol !== "CUSTOM") {
+                          handleCurrencyChange(opt.symbol);
+                        } else {
+                          if (form.currency === "SJC" || form.currency === "SJ9999") {
+                            handleCurrencyChange("VND");
+                          }
+                        }
+                      }}
+                      className={`py-2 px-3 text-xs font-bold rounded-lg border transition-all cursor-pointer ${
+                        isSelected
+                          ? "bg-amber-500 border-amber-600 text-white shadow-sm scale-[1.02]"
+                          : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {(form.currency !== "SJC" && form.currency !== "SJ9999") && (
+                <div className="mt-2 animate-in fade-in duration-200">
+                  <CurrencyCombobox
+                    value={form.currency}
+                    onChange={handleCurrencyChange}
+                    disabled={submitting}
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+            <CurrencyCombobox
+              value={form.currency}
+              onChange={handleCurrencyChange}
+              disabled={submitting}
+            />
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -128,19 +196,25 @@ export default function AssetForm({
             step="any"
             value={form.originalValue}
             onChange={(e) => {
-              const originalValue = Number(e.target.value);
+              const valStr = e.target.value;
+              const numValue = Number(valStr);
               setForm({
                 ...form,
-                originalValue,
-                value: originalValue * currentRate,
+                originalValue: valStr,
+                value: isNaN(numValue) ? 0 : numValue * currentRate,
               });
             }}
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
             placeholder="0"
             disabled={submitting}
           />
+          {(form.currency === "SJC" || form.currency === "SJ9999") && (
+            <p className="text-xs text-amber-600 mt-1.5 font-medium flex items-center gap-1">
+              <span>💡</span> Đơn vị tính: lượng (1 lượng = 10 chỉ). Ví dụ: nhập 2.5 cho 2 lượng 5 chỉ.
+            </p>
+          )}
         </div>
-        {form.currency !== "VND" && form.originalValue > 0 && (
+        {form.currency !== "VND" && Number(form.originalValue) > 0 && (
           <div className="md:col-span-2 p-4 bg-blue-50 rounded-lg border border-blue-200">
             <div className="flex items-center justify-between">
               <div>

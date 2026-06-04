@@ -6,7 +6,7 @@ const AssetSchema = new Schema(
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     type: {
       type: String,
-      enum: ['cash', 'bank', 'investment', 'property', 'digital', 'other'],
+      enum: ['cash', 'bank', 'investment', 'property', 'digital', 'gold', 'other'],
       required: true,
     },
 
@@ -25,4 +25,5 @@ const AssetSchema = new Schema(
   { timestamps: true }
 )
 
-export const Asset = models.Asset || model('Asset', AssetSchema)
+delete (models as any).Asset
+export const Asset = model('Asset', AssetSchema)

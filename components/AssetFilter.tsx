@@ -14,6 +14,7 @@ onChange={e => onChange(e.target.value)}
 <option value="investment">Đầu tư</option>
 <option value="property">BĐS</option>
 <option value="digital">Tài sản số</option>
+<option value="gold">Vàng</option>
 <option value="other">Khác</option>
 </select>
 )
