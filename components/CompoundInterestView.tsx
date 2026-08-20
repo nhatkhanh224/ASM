@@ -17,6 +17,8 @@ export default function CompoundInterestView() {
   const [currency, setCurrency] = useState<"VND" | "USD">("VND");
   const [results, setResults] = useState<CompoundResult[]>([]);
   const [progress, setProgress] = useState<Record<number, boolean>>({});
+  const [actualTotals, setActualTotals] = useState<Record<number, string>>({});
+  const [editingPeriod, setEditingPeriod] = useState<number | null>(null);
 
   // Load progress from localStorage
   useEffect(() => {
@@ -29,17 +31,45 @@ export default function CompoundInterestView() {
           console.error("Error parsing saved progress", e);
         }
       }
+      
+      let parsedActuals: Record<number, string> = {};
+      const savedActuals = localStorage.getItem("compound_interest_actual_totals");
+      if (savedActuals) {
+        try {
+          parsedActuals = JSON.parse(savedActuals);
+          setActualTotals(parsedActuals);
+        } catch (e) {
+          console.error("Error parsing saved actual totals", e);
+        }
+      }
+      
+      const savedConfig = localStorage.getItem("compound_interest_config");
+      if (savedConfig) {
+        try {
+          const parsed = JSON.parse(savedConfig);
+          if (parsed.principal) setPrincipal(parsed.principal);
+          if (parsed.rate) setRate(parsed.rate);
+          if (parsed.periods) setPeriods(parsed.periods);
+          if (parsed.currency) setCurrency(parsed.currency);
+          
+          calculateResults(parsed.principal, parsed.rate, parsed.periods, false, parsedActuals);
+        } catch (e) {
+          console.error("Error parsing saved config", e);
+        }
+      } else {
+        calculateResults("10000000", "10", "10", false, parsedActuals);
+      }
     };
     loadProgress();
   }, []);
 
-  const handleCalculate = () => {
-    const p = parseFloat(principal);
-    const r = parseFloat(rate) / 100;
-    const n = parseInt(periods);
+  const calculateResults = (pStr: string, rStr: string, nStr: string, showAlert: boolean = true, totalsOverride: Record<number, string> = actualTotals) => {
+    const p = parseFloat(pStr);
+    const r = parseFloat(rStr) / 100;
+    const n = parseInt(nStr);
 
     if (isNaN(p) || isNaN(r) || isNaN(n) || p <= 0 || r <= 0 || n <= 0) {
-      alert("Vui lòng nhập số hợp lệ lớn hơn 0");
+      if (showAlert) alert("Vui lòng nhập số hợp lệ lớn hơn 0");
       return;
     }
 
@@ -55,10 +85,26 @@ export default function CompoundInterestView() {
         interest,
         total,
       });
-      currentPrincipal = total;
+      
+      if (totalsOverride && totalsOverride[i] !== undefined && totalsOverride[i] !== "") {
+         const overriddenValue = parseFloat(totalsOverride[i]);
+         currentPrincipal = isNaN(overriddenValue) ? total : overriddenValue;
+      } else {
+         currentPrincipal = total;
+      }
     }
 
     setResults(newResults);
+  };
+
+  const handleCalculate = () => {
+    calculateResults(principal, rate, periods, true, actualTotals);
+    localStorage.setItem("compound_interest_config", JSON.stringify({
+      principal,
+      rate,
+      periods,
+      currency
+    }));
   };
 
   const toggleProgress = (period: number) => {
@@ -66,6 +112,15 @@ export default function CompoundInterestView() {
       const newProgress = { ...prev, [period]: !prev[period] };
       localStorage.setItem("compound_interest_progress", JSON.stringify(newProgress));
       return newProgress;
+    });
+  };
+
+  const handleActualTotalChange = (period: number, value: string) => {
+    setActualTotals((prev) => {
+      const newTotals = { ...prev, [period]: value };
+      localStorage.setItem("compound_interest_actual_totals", JSON.stringify(newTotals));
+      calculateResults(principal, rate, periods, false, newTotals);
+      return newTotals;
     });
   };
 
@@ -182,8 +237,36 @@ export default function CompoundInterestView() {
                     <td className="py-3 px-6 text-right font-mono text-emerald-600">
                       +{formatCurrency(row.interest)}
                     </td>
-                    <td className="py-3 px-6 text-right font-mono font-semibold text-slate-800">
-                      {formatCurrency(row.total)}
+                    <td 
+                      className="py-3 px-6 text-right font-mono text-slate-800 relative group cursor-pointer"
+                      onClick={() => {
+                         if (editingPeriod !== row.period) {
+                            setEditingPeriod(row.period);
+                         }
+                      }}
+                    >
+                      {editingPeriod === row.period ? (
+                        <input
+                          type="number"
+                          autoFocus
+                          className="w-full min-w-[120px] text-right px-2 py-1 border border-emerald-500 rounded outline-none font-semibold text-emerald-700 bg-white"
+                          value={actualTotals[row.period] !== undefined ? actualTotals[row.period] : Math.round(row.total).toString()}
+                          onChange={(e) => handleActualTotalChange(row.period, e.target.value)}
+                          onBlur={() => setEditingPeriod(null)}
+                          onKeyDown={(e) => e.key === 'Enter' && setEditingPeriod(null)}
+                        />
+                      ) : (
+                        <div className="flex flex-col items-end" title="Nhấn để chỉnh sửa số tiền thực tế">
+                          <span className={`font-semibold ${actualTotals[row.period] ? 'text-emerald-600' : ''}`}>
+                            {actualTotals[row.period] ? formatCurrency(parseFloat(actualTotals[row.period]) || 0) : formatCurrency(row.total)}
+                          </span>
+                          {actualTotals[row.period] && (
+                            <span className="text-[10px] text-slate-400 font-normal leading-tight">
+                              Kế hoạch: {formatCurrency(row.total)}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="py-3 px-6 text-center">
                       <button
