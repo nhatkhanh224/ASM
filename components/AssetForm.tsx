@@ -32,6 +32,12 @@ export default function AssetForm({
     currency: editingAsset?.currency ?? "VND",
     value: editingAsset?.value ?? 0,
     note: editingAsset?.note ?? "",
+    isFutures: editingAsset?.isFutures ?? false,
+    coinSymbol: editingAsset?.coinSymbol ?? "BTC",
+    leverage: editingAsset?.leverage ?? 10,
+    positionType: editingAsset?.positionType ?? "long",
+    entryPrice: editingAsset?.entryPrice ?? "",
+    liquidationPrice: editingAsset?.liquidationPrice ?? "",
   });
 
   const handleCurrencyChange = (symbol: string) => {
@@ -61,6 +67,9 @@ export default function AssetForm({
         ...form,
         originalValue: numOriginalValue,
         value: numOriginalValue * currentRate,
+        leverage: form.isFutures ? Number(form.leverage) : undefined,
+        entryPrice: form.isFutures ? Number(form.entryPrice) : undefined,
+        liquidationPrice: form.isFutures ? Number(form.liquidationPrice) : undefined,
       };
       const res = await fetch(url, {
         method,
@@ -129,10 +138,24 @@ export default function AssetForm({
               </option>
             ))}
           </select>
+          {form.type === "digital" && (
+            <div className="mt-3 flex items-center">
+              <input
+                type="checkbox"
+                id="isFutures"
+                checked={form.isFutures}
+                onChange={(e) => setForm({ ...form, isFutures: e.target.checked, currency: "USD" })}
+                className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+              />
+              <label htmlFor="isFutures" className="ml-2 block text-sm text-gray-700 font-medium">
+                Đây là lệnh Futures (có đòn bẩy)
+              </label>
+            </div>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Đơn vị tiền *
+            {form.isFutures ? "Đồng tiền ký quỹ *" : "Đơn vị tiền *"}
           </label>
           {form.type === "gold" ? (
             <div className="space-y-2">
@@ -187,9 +210,24 @@ export default function AssetForm({
             />
           )}
         </div>
+        {form.isFutures && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Coin Giao Dịch *
+            </label>
+            <CurrencyCombobox
+              value={form.coinSymbol}
+              onChange={(symbol) => {
+                setForm({ ...form, coinSymbol: symbol });
+                if (!exchangeRates[symbol]) onNewCurrency(symbol);
+              }}
+              disabled={submitting}
+            />
+          </div>
+        )}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            Giá trị *
+            {form.isFutures ? "Số tiền ký quỹ (Margin) *" : "Giá trị *"}
           </label>
           <input
             type="number"
@@ -214,7 +252,60 @@ export default function AssetForm({
             </p>
           )}
         </div>
-        {form.currency !== "VND" && Number(form.originalValue) > 0 && (
+        {form.isFutures && (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Vị thế & Đòn bẩy *
+              </label>
+              <div className="flex gap-2">
+                <select
+                  value={form.positionType}
+                  onChange={(e) => setForm({ ...form, positionType: e.target.value })}
+                  className="w-1/2 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-semibold"
+                >
+                  <option value="long">Long</option>
+                  <option value="short">Short</option>
+                </select>
+                <div className="relative w-1/2">
+                  <input
+                    type="number"
+                    value={form.leverage}
+                    onChange={(e) => setForm({ ...form, leverage: e.target.value })}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                    placeholder="VD: 10"
+                  />
+                  <span className="absolute right-3 top-3 text-gray-500 font-semibold">x</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Giá vào lệnh (USD) *
+              </label>
+              <input
+                type="number"
+                value={form.entryPrice}
+                onChange={(e) => setForm({ ...form, entryPrice: e.target.value })}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                placeholder="VD: 60000"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Giá thanh lý (USD)
+              </label>
+              <input
+                type="number"
+                value={form.liquidationPrice}
+                onChange={(e) => setForm({ ...form, liquidationPrice: e.target.value })}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                placeholder="VD: 55000"
+              />
+            </div>
+          </>
+        )}
+        {form.currency !== "VND" && Number(form.originalValue) > 0 && !form.isFutures && (
           <div className="md:col-span-2 p-4 bg-blue-50 rounded-lg border border-blue-200">
             <div className="flex items-center justify-between">
               <div>

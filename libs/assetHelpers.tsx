@@ -110,8 +110,45 @@ export async function fetchRatesWithRetry(
 export function applyRates(assets: Asset[], rates: ExchangeRates): AssetWithRate[] {
   return assets.map((asset) => {
     const rate = rates[asset.currency] ?? 1;
-    const currentValueInVND = (asset.originalValue ?? asset.value) * rate;
-    return { ...asset, currentValueInVND };
+    let currentValueInVND = (asset.originalValue ?? asset.value) * rate;
+    let isLiquidated = false;
+    let pnl = 0;
+    let pnlInCurrency = 0;
+    let currentCoinPrice = 0;
+
+    if (asset.isFutures && asset.coinSymbol && asset.entryPrice && asset.leverage) {
+      const coinRateVND = rates[asset.coinSymbol] ?? 0;
+      const usdRateVND = rates["USD"] ?? 26200;
+      const currentCoinPriceUSD = coinRateVND / usdRateVND;
+      currentCoinPrice = currentCoinPriceUSD;
+      
+      const priceDiff = currentCoinPriceUSD - asset.entryPrice;
+      const pctChange = priceDiff / asset.entryPrice;
+      
+      const pnlPct = asset.positionType === 'short' ? -pctChange * asset.leverage : pctChange * asset.leverage;
+      
+      const marginVND = currentValueInVND; 
+      pnl = marginVND * pnlPct;
+      pnlInCurrency = (asset.originalValue ?? asset.value) * pnlPct;
+      
+      currentValueInVND = marginVND + pnl;
+      
+      if (asset.liquidationPrice) {
+         if (asset.positionType === 'short' && currentCoinPriceUSD >= asset.liquidationPrice) {
+            isLiquidated = true;
+         } else if (asset.positionType !== 'short' && currentCoinPriceUSD <= asset.liquidationPrice) {
+            isLiquidated = true;
+         }
+      }
+      
+      if (isLiquidated) {
+         currentValueInVND = 0;
+         pnl = -marginVND; // Lose all margin
+         pnlInCurrency = -(asset.originalValue ?? asset.value);
+      }
+    }
+
+    return { ...asset, currentValueInVND, isLiquidated, pnl, pnlInCurrency, currentCoinPrice };
   });
 }
 

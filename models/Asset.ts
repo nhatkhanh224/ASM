@@ -20,6 +20,13 @@ const AssetSchema = new Schema(
       default: 'VND',
     },
 
+    isFutures: { type: Boolean, default: false },
+    coinSymbol: { type: String },
+    leverage: { type: Number },
+    positionType: { type: String, enum: ['long', 'short'] },
+    entryPrice: { type: Number },
+    liquidationPrice: { type: Number },
+
     note: String,
   },
   { timestamps: true }

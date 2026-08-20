@@ -79,22 +79,57 @@ export default function AssetList({
                           </span>
                         </>
                       )}
+                      {asset.isFutures && (
+                        <>
+                          <span className="text-xs text-gray-400">•</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-md font-bold ${asset.positionType === 'long' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {asset.positionType === 'long' ? 'Long' : 'Short'} {asset.leverage}x
+                          </span>
+                          <span className="text-xs text-gray-500 font-semibold px-2 py-0.5 bg-gray-100 rounded-md">
+                            {asset.coinSymbol}
+                          </span>
+                          {asset.entryPrice && asset.currentCoinPrice ? (
+                            <>
+                              <span className="text-xs text-gray-400">•</span>
+                              <span className="text-xs text-gray-500">
+                                Giá vào: ${asset.entryPrice.toLocaleString()} → Hiện tại: ${asset.currentCoinPrice.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                              </span>
+                            </>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-right">
-                    <p className="text-lg font-bold text-gray-800">
-                      {(asset.originalValue ?? asset.value).toLocaleString()}{" "}
-                      {asset.currency}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      ≈ {asset.currentValueInVND.toLocaleString()} VND
-                    </p>
-                    {hasRateChanged && (
-                      <p className="text-xs text-blue-600 mt-1">
-                        Đã cập nhật tỷ giá
+                    {asset.isLiquidated ? (
+                      <p className="text-base font-bold text-red-600 bg-red-50 border border-red-200 px-3 py-1 rounded-lg">
+                        ⚠️ Đã thanh lý
                       </p>
+                    ) : (
+                      <>
+                        <p className="text-lg font-bold text-gray-800">
+                          {asset.isFutures
+                            ? ((asset.originalValue ?? asset.value) + (asset.pnlInCurrency ?? 0)).toLocaleString(undefined, { maximumFractionDigits: 2 })
+                            : (asset.originalValue ?? asset.value).toLocaleString()}{" "}
+                          {asset.currency}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          ≈ {asset.currentValueInVND.toLocaleString(undefined, { maximumFractionDigits: 0 })} VND
+                        </p>
+                        {asset.isFutures && asset.pnl !== undefined && asset.pnlInCurrency !== undefined && (
+                          <p className={`text-xs font-bold mt-1 ${asset.pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {asset.pnl >= 0 ? '+' : ''}{asset.pnlInCurrency.toLocaleString(undefined, { maximumFractionDigits: 2 })} {asset.currency}
+                            {" "}({asset.pnl >= 0 ? '+' : ''}{Math.round(asset.pnl).toLocaleString()} VND) PnL
+                          </p>
+                        )}
+                        {!asset.isFutures && hasRateChanged && (
+                          <p className="text-xs text-blue-600 mt-1">
+                            Đã cập nhật tỷ giá
+                          </p>
+                        )}
+                      </>
                     )}
                   </div>
                   <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
