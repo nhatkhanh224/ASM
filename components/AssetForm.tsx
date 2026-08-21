@@ -261,7 +261,7 @@ export default function AssetForm({
               <div className="flex gap-2">
                 <select
                   value={form.positionType}
-                  onChange={(e) => setForm({ ...form, positionType: e.target.value })}
+                  onChange={(e) => setForm({ ...form, positionType: e.target.value as "long" | "short" })}
                   className="w-1/2 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-semibold"
                 >
                   <option value="long">Long</option>
