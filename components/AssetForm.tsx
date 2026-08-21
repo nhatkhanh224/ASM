@@ -34,10 +34,11 @@ export default function AssetForm({
     note: editingAsset?.note ?? "",
     isFutures: editingAsset?.isFutures ?? false,
     coinSymbol: editingAsset?.coinSymbol ?? "BTC",
-    leverage: editingAsset?.leverage ?? 10,
-    positionType: editingAsset?.positionType ?? "long",
-    entryPrice: editingAsset?.entryPrice ?? "",
-    liquidationPrice: editingAsset?.liquidationPrice ?? "",
+    // Giữ dạng string để input number không bị lỗi type, convert sang Number khi submit
+    leverage: editingAsset?.leverage !== undefined ? String(editingAsset.leverage) : "10",
+    positionType: (editingAsset?.positionType ?? "long") as "long" | "short",
+    entryPrice: editingAsset?.entryPrice !== undefined ? String(editingAsset.entryPrice) : "",
+    liquidationPrice: editingAsset?.liquidationPrice !== undefined ? String(editingAsset.liquidationPrice) : "",
   });
 
   const handleCurrencyChange = (symbol: string) => {
@@ -53,11 +54,25 @@ export default function AssetForm({
     if (!exchangeRates[symbol]) onNewCurrency(symbol);
   };
 
+  const currentRate = exchangeRates[form.currency] ?? 1;
+
   const submit = async () => {
     const numOriginalValue = Number(form.originalValue);
     if (!form.name || isNaN(numOriginalValue) || numOriginalValue <= 0) {
       alert("Vui lòng nhập đầy đủ thông tin!");
       return;
+    }
+    if (form.isFutures) {
+      const numLeverage = Number(form.leverage);
+      const numEntryPrice = Number(form.entryPrice);
+      if (isNaN(numLeverage) || numLeverage <= 0) {
+        alert("Đòn bẩy không hợp lệ!");
+        return;
+      }
+      if (!form.entryPrice || isNaN(numEntryPrice) || numEntryPrice <= 0) {
+        alert("Giá vào lệnh không hợp lệ!");
+        return;
+      }
     }
     setSubmitting(true);
     try {
@@ -69,7 +84,10 @@ export default function AssetForm({
         value: numOriginalValue * currentRate,
         leverage: form.isFutures ? Number(form.leverage) : undefined,
         entryPrice: form.isFutures ? Number(form.entryPrice) : undefined,
-        liquidationPrice: form.isFutures ? Number(form.liquidationPrice) : undefined,
+        liquidationPrice:
+          form.isFutures && form.liquidationPrice !== ""
+            ? Number(form.liquidationPrice)
+            : undefined,
       };
       const res = await fetch(url, {
         method,
@@ -87,8 +105,6 @@ export default function AssetForm({
       setSubmitting(false);
     }
   };
-
-  const currentRate = exchangeRates[form.currency] ?? 1;
 
   return (
     <div className="bg-white rounded-2xl shadow-lg p-6 border border-gray-100">
