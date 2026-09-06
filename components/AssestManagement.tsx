@@ -178,7 +178,7 @@ export default function AssetManagementApp() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-50/70 via-slate-50 to-blue-50/70 text-slate-800">
+    <div className="text-slate-800">
       <div className="max-w-6xl mx-auto p-6 space-y-4">
         <PriceAlertBanner exchangeRates={exchangeRates} />
 
