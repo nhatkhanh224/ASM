@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { TrendingUp, Calculator, CheckCircle2, Circle } from "lucide-react";
+import { TrendingUp, Calculator, CheckCircle2, Circle, RotateCcw } from "lucide-react";
 
 interface CompoundResult {
   period: number;
@@ -107,6 +107,22 @@ export default function CompoundInterestView() {
     }));
   };
 
+  const handleReset = () => {
+    if (confirm("Bạn có chắc muốn đặt lại tất cả dữ liệu lãi kép?")) {
+      setPrincipal("10000000");
+      setRate("10");
+      setPeriods("10");
+      setCurrency("VND");
+      setProgress({});
+      setActualTotals({});
+      setEditingPeriod(null);
+      localStorage.removeItem("compound_interest_config");
+      localStorage.removeItem("compound_interest_progress");
+      localStorage.removeItem("compound_interest_actual_totals");
+      calculateResults("10000000", "10", "10", false, {});
+    }
+  };
+
   const toggleProgress = (period: number) => {
     setProgress((prev) => {
       const newProgress = { ...prev, [period]: !prev[period] };
@@ -199,7 +215,14 @@ export default function CompoundInterestView() {
         </div>
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-3">
+        <button
+          onClick={handleReset}
+          className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-6 py-3 rounded-xl flex items-center gap-2 transition-all shadow-sm hover:shadow cursor-pointer font-semibold"
+        >
+          <RotateCcw className="w-5 h-5" />
+          Đặt lại
+        </button>
         <button
           onClick={handleCalculate}
           className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all shadow-md hover:shadow-lg cursor-pointer font-semibold"

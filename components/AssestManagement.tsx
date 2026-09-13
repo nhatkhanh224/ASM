@@ -11,6 +11,7 @@ import {
   Share2,
   DollarSign,
   TrendingUp,
+  Activity,
 } from "lucide-react";
 import { takeSnapshot } from "@/libs/snapshot";
 import { Asset, ExchangeRates } from "@/types/asset";
@@ -36,6 +37,7 @@ import AnalysisView from "@/components/AnalysisView";
 import ScenarioView from "@/components/ScenarioView";
 import TransactionView from "@/components/TransactionView";
 import CompoundInterestView from "@/components/CompoundInterestView";
+import FuturesCalculator from "@/components/FuturesCalculator";
 
 export default function AssetManagementApp() {
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -46,7 +48,7 @@ export default function AssetManagementApp() {
   const [showForm, setShowForm] = useState(false);
   const [editingAsset, setEditingAsset] = useState<Asset | null>(null);
   const [view, setView] = useState<
-    "list" | "chart" | "history" | "analysis" | "scenario" | "transactions" | "compound"
+    "list" | "chart" | "history" | "analysis" | "scenario" | "transactions" | "compound" | "futures"
   >("list");
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
   const [showShareCard, setShowShareCard] = useState(false);
@@ -282,6 +284,11 @@ export default function AssetManagementApp() {
                 label: "Lãi kép",
                 icon: <TrendingUp className="w-4 h-4" />,
               },
+              {
+                key: "futures",
+                label: "Futures",
+                icon: <Activity className="w-4 h-4" />,
+              },
             ] as const
           ).map((tab) => (
             <button
@@ -322,6 +329,7 @@ export default function AssetManagementApp() {
           <ScenarioView assets={assets} exchangeRates={exchangeRates} />
         )}
         {view === "compound" && <CompoundInterestView />}
+        {view === "futures" && <FuturesCalculator />}
 
         {showShareCard && (
           <ShareCard
