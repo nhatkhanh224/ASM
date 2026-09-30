@@ -13,6 +13,8 @@ const FinancialGoalSchema = new Schema(
     },
     deadline: { type: Date },
     note: { type: String },
+    linkAllAssets: { type: Boolean, default: false },
+    linkedAssetIds: { type: [String], default: [] },
   },
   { timestamps: true }
 );

@@ -7,6 +7,8 @@ export interface FinancialGoal {
   currency: string;
   deadline?: string; // Ngày mục tiêu
   note?: string;
+  linkAllAssets?: boolean;
+  linkedAssetIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
