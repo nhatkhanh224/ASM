@@ -1,3 +1,11 @@
+export interface GoalTask {
+  id: string;
+  title: string;
+  amount: number;
+  currency?: "VND" | "USD";
+  completed: boolean;
+}
+
 export interface FinancialGoal {
   _id: string;
   name: string;
@@ -9,6 +17,7 @@ export interface FinancialGoal {
   note?: string;
   linkAllAssets?: boolean;
   linkedAssetIds?: string[];
+  tasks?: GoalTask[];
   createdAt: string;
   updatedAt: string;
 }

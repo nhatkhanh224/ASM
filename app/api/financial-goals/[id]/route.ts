@@ -10,7 +10,11 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
 
   await connectDB();
   const body = await req.json();
-  const goal = await FinancialGoal.findOneAndUpdate({ _id: id, userId }, body, { new: true });
+  const goal = await FinancialGoal.findOneAndUpdate(
+    { _id: id, userId },
+    body,
+    { new: true, runValidators: true }
+  );
   if (!goal) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   return NextResponse.json(goal);
 }
