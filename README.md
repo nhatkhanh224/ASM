@@ -2,6 +2,15 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Getting Started
 
+Create a local `.env` file with:
+
+```env
+MONGODB_URI=your_mongodb_connection_string
+SESSION_SECRET=a_long_random_secret_used_to_sign_sessions
+```
+
+`SESSION_SECRET` should be generated independently for each deployed environment. Existing users may need to sign in again after the secret changes.
+
 First, run the development server:
 
 ```bash

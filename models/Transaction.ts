@@ -1,7 +1,8 @@
-import { Schema, model, models } from 'mongoose'
+import { Schema, Types, model, models } from 'mongoose'
 
 export interface ITransaction {
   _id?: string
+  userId: Types.ObjectId
   assetId: string        // ref to Asset._id
   assetName: string      // denormalized for display
   type: 'buy' | 'sell' | 'deposit' | 'withdraw'
@@ -16,6 +17,7 @@ export interface ITransaction {
 
 const TransactionSchema = new Schema<ITransaction>(
   {
+    userId:        { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     assetId:       { type: String, required: true, index: true },
     assetName:     { type: String, required: true },
     type:          { type: String, enum: ['buy', 'sell', 'deposit', 'withdraw'], required: true },
@@ -28,5 +30,7 @@ const TransactionSchema = new Schema<ITransaction>(
   },
   { timestamps: true }
 )
+
+TransactionSchema.index({ userId: 1, transactedAt: -1 })
 
 export const Transaction = models.Transaction || model<ITransaction>('Transaction', TransactionSchema)

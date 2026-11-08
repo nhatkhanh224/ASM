@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { parseSession } from '@/libs/auth'
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl
   const isPublic = pathname.startsWith('/login') || pathname.startsWith('/api/auth')
-  const hasSession = req.cookies.has('kvault_session')
+  const token = req.cookies.get('kvault_session')?.value
+  const hasSession = Boolean(token && parseSession(token))
 
   if (!isPublic && !hasSession) {
     if (pathname.startsWith('/api/'))

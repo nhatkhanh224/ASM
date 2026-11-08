@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { connectDB } from '@/libs/db'
 import { Asset } from '@/models/Asset'
 import { getUserIdFromRequest } from '@/libs/auth'
+import { validateAssetPayload } from '@/libs/apiValidation'
 
 export async function GET(req: Request) {
   const userId = await getUserIdFromRequest(req)
@@ -14,12 +15,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const userId = await getUserIdFromRequest(req)
-  console.log("🚀 ~ POST ~ userId:", userId)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   await connectDB()
-  const body = await req.json()
-  const asset = await Asset.create({ userId, ...body })
-  console.log("🚀 ~ POST ~ asset:", asset)
-  return NextResponse.json(asset)
+  const body = await req.json() as Record<string, unknown>
+  const result = validateAssetPayload(body)
+  if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+  const asset = await Asset.create({ ...result.data, userId })
+  return NextResponse.json(asset, { status: 201 })
 }

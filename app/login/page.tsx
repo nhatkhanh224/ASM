@@ -42,8 +42,8 @@ export default function LoginPage() {
 
       router.push("/");
       router.refresh();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Có lỗi xảy ra");
     } finally {
       setLoading(false);
     }
@@ -130,7 +130,7 @@ export default function LoginPage() {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type={showPassword ? "text" : "password"}
-                  placeholder={mode === "register" ? "Tối thiểu 6 ký tự" : "••••••••"}
+                  placeholder={mode === "register" ? "Tối thiểu 8 ký tự" : "••••••••"}
                   value={form.password}
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   onKeyDown={(e) => e.key === "Enter" && submit()}
