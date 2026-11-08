@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+.input-field {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  background: white;
+  padding: 0.5rem 0.75rem;
+  outline: none;
+}
+
+.input-field:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgb(99 102 241 / 20%);
+}
+
 /* :root {
   --background: #ffffff;
   --foreground: #171717;

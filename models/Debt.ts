@@ -1,5 +1,21 @@
 import { Schema, model, models } from 'mongoose';
 
+const DebtInstallmentSchema = new Schema(
+  {
+    id: { type: String, required: true },
+    installmentNumber: { type: Number, required: true, min: 1 },
+    dueDate: { type: Date, required: true },
+    principalAmount: { type: Number, required: true, min: 0 },
+    interestAmount: { type: Number, required: true, min: 0 },
+    totalAmount: { type: Number, required: true, min: 0 },
+    paidAmount: { type: Number, required: true, min: 0, default: 0 },
+    status: { type: String, enum: ['pending', 'paid'], default: 'pending' },
+    paidAt: { type: Date },
+    note: { type: String },
+  },
+  { _id: false }
+);
+
 const DebtSchema = new Schema(
   {
     name: { type: String, required: true },
@@ -23,10 +39,22 @@ const DebtSchema = new Schema(
       default: 'active',
       required: true,
     },
+    repaymentMode: {
+      type: String,
+      enum: ['single', 'installment'],
+      default: 'single',
+    },
+    calculationMethod: {
+      type: String,
+      enum: ['equal_payment', 'equal_principal', 'no_interest'],
+    },
+    firstPaymentDate: { type: Date },
+    termMonths: { type: Number, min: 1, max: 600 },
+    installments: { type: [DebtInstallmentSchema], default: [] },
     note: { type: String },
   },
   { timestamps: true }
 );
 
-delete (models as any).Debt;
+delete models.Debt;
 export const Debt = model('Debt', DebtSchema);
