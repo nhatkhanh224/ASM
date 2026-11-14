@@ -3,6 +3,7 @@ import { connectDB } from '@/libs/db'
 import { Transaction } from '@/models/Transaction'
 import { Asset } from '@/models/Asset'
 import { getUserIdFromRequest } from '@/libs/auth'
+import { calculateTrackedQuantity } from '@/libs/portfolioCalculator'
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Có lỗi xảy ra'
 
@@ -46,15 +47,19 @@ export async function POST(request: Request) {
     const numericPrice = Number(pricePerUnit ?? 0)
     const numericTotal = Number(totalValueVND)
 
-    if (!assetId || !['buy', 'sell', 'deposit', 'withdraw'].includes(type) || !currency
+    if (!assetId || !['opening', 'buy', 'sell', 'deposit', 'withdraw'].includes(type) || !currency
       || !Number.isFinite(numericQuantity) || numericQuantity <= 0
       || !Number.isFinite(numericPrice) || numericPrice < 0
       || !Number.isFinite(numericTotal) || numericTotal < 0) {
       return NextResponse.json({ error: 'Thiếu thông tin bắt buộc' }, { status: 400 })
     }
 
-    const asset = await Asset.findOne({ _id: assetId, userId }).select('name currency')
+    const asset = await Asset.findOne({ _id: assetId, userId }).select('name currency trackingMode')
     if (!asset) return NextResponse.json({ error: 'Không tìm thấy tài sản' }, { status: 404 })
+
+    if (type === 'opening' && await Transaction.exists({ userId, assetId, type: 'opening' })) {
+      return NextResponse.json({ error: 'Tài sản này đã có số dư ban đầu' }, { status: 409 })
+    }
 
     const tx = await Transaction.create({
       userId,
@@ -68,6 +73,13 @@ export async function POST(request: Request) {
       note: typeof note === 'string' ? note.trim().slice(0, 500) : '',
       transactedAt: transactedAt ? new Date(transactedAt) : new Date(),
     })
+
+    if (body.enableTracking === true || type === 'opening' || asset.trackingMode === 'transactions') {
+      const ledger = await Transaction.find({ userId, assetId }).sort({ transactedAt: 1 }).lean()
+      asset.originalValue = calculateTrackedQuantity(ledger)
+      asset.trackingMode = 'transactions'
+      await asset.save()
+    }
 
     return NextResponse.json(tx, { status: 201 })
   } catch (error: unknown) {

@@ -20,6 +20,12 @@ const AssetSchema = new Schema(
       default: 'VND',
     },
 
+    trackingMode: { type: String, enum: ['manual', 'transactions'], default: 'manual' },
+    monthlyDcaBudgetVND: { type: Number, min: 0, default: 0 },
+    monthlyDcaBudgetAmount: { type: Number, min: 0, default: 0 },
+    dcaBudgetCurrency: { type: String, enum: ['VND', 'USD'], default: 'VND' },
+    dcaDayOfMonth: { type: Number, min: 1, max: 28, default: 1 },
+
     isFutures: { type: Boolean, default: false },
     coinSymbol: { type: String },
     leverage: { type: Number },
@@ -32,5 +38,5 @@ const AssetSchema = new Schema(
   { timestamps: true }
 )
 
-delete (models as any).Asset
+delete models.Asset
 export const Asset = model('Asset', AssetSchema)

@@ -2,10 +2,13 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import {
-  Plus, Trash2, TrendingUp, TrendingDown, ArrowDownCircle,
-  ArrowUpCircle, DollarSign, BarChart2, List, X, ChevronDown,
-  AlertCircle, CheckCircle,
+  Plus, Trash2, TrendingUp, ArrowDownCircle,
+  ArrowUpCircle, BarChart2, List, X,
+  AlertCircle, CheckCircle, SlidersHorizontal, RotateCcw, Target,
+  CalendarDays, Save, LineChart,
 } from "lucide-react";
+import { calculatePortfolioPnl } from "@/libs/portfolioCalculator";
+import type { TransactionRecord } from "@/types/transaction";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,22 +18,19 @@ export interface Asset {
   currency: string;
   originalValue: number;
   value: number;
+  type?: string;
+  trackingMode?: "manual" | "transactions";
+  monthlyDcaBudgetVND?: number;
+  monthlyDcaBudgetAmount?: number;
+  dcaBudgetCurrency?: "VND" | "USD";
+  dcaDayOfMonth?: number;
 }
 
-export interface Transaction {
-  _id: string;
-  assetId: string;
-  assetName: string;
-  type: "buy" | "sell" | "deposit" | "withdraw";
-  currency: string;
-  quantity: number;
-  pricePerUnit: number;
-  totalValueVND: number;
-  note?: string;
-  transactedAt: string;
-}
+export type Transaction = TransactionRecord & { transactedAt: string };
 
 interface CostBasisRow {
+  assetId: string;
+  assetName: string;
   currency: string;
   totalQuantity: number;
   totalCostUSD: number;
@@ -45,11 +45,13 @@ interface CostBasisRow {
 interface TransactionViewProps {
   assets: Asset[];
   exchangeRates: Record<string, number>; // e.g. { BTC: 2_500_000_000, USD: 26200 }
+  onTransactionsChanged?: () => void | Promise<void>;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TX_TYPE_CONFIG = {
+  opening:  { label: "Số dư đầu", color: "bg-violet-100 text-violet-700", icon: CheckCircle, dotColor: "bg-violet-500" },
   buy:      { label: "Mua",   color: "bg-emerald-100 text-emerald-700", icon: ArrowDownCircle, dotColor: "bg-emerald-500" },
   sell:     { label: "Bán",   color: "bg-red-100 text-red-600",         icon: ArrowUpCircle,   dotColor: "bg-red-500" },
   deposit:  { label: "Nạp",   color: "bg-blue-100 text-blue-700",       icon: ArrowDownCircle, dotColor: "bg-blue-500" },
@@ -83,71 +85,128 @@ function formatDate(dateStr: string) {
   });
 }
 
-// Tính Average Cost Basis từ danh sách transactions (FIFO)
+// Tính giá vốn trung bình gia quyền, tách riêng theo từng tài sản.
 function calcCostBasis(
   transactions: Transaction[],
   exchangeRates: Record<string, number>
 ): CostBasisRow[] {
   const usdRate = exchangeRates["USD"] || 26200;
+  return calculatePortfolioPnl(transactions, exchangeRates)
+    .filter((row) => row.currency !== "VND" && row.totalQuantity > 0)
+    .map((row) => ({
+      assetId: row.assetId,
+      assetName: row.assetName,
+      currency: row.currency,
+      totalQuantity: row.totalQuantity,
+      totalCostUSD: row.totalCostVND / usdRate,
+      avgCostUSD: row.avgCostVND / usdRate,
+      currentPriceUSD: row.currentPriceVND / usdRate,
+      currentValueUSD: row.currentValueVND / usdRate,
+      unrealizedPnlUSD: row.unrealizedPnlVND / usdRate,
+      unrealizedPnlPct: row.unrealizedPnlPct,
+      realizedPnlUSD: row.realizedPnlVND / usdRate,
+    }));
+}
 
-  // Group by currency
-  const byCurrency: Record<string, Transaction[]> = {};
-  for (const tx of transactions) {
-    const c = tx.currency.toUpperCase();
-    if (c === "VND") continue; // VND không có cost basis theo USD
-    if (!byCurrency[c]) byCurrency[c] = [];
-    byCurrency[c].push(tx);
-  }
+// ─── Quick DCA / Opening Balance ─────────────────────────────────────────────
 
-  const rows: CostBasisRow[] = [];
+function QuickDcaForm({ assets, exchangeRates, transactions, onSaved, onCancel }: TransactionFormProps & { transactions: Transaction[] }) {
+  const cryptoAssets = assets.filter((asset) => asset.currency.toUpperCase() !== "VND" && !asset.type?.includes("property"));
+  const [assetId, setAssetId] = useState(cryptoAssets[0]?._id ?? "");
+  const [mode, setMode] = useState<"opening" | "buy">(
+    transactions.some((tx) => tx.assetId === cryptoAssets[0]?._id && tx.type === "opening") ? "buy" : "opening",
+  );
+  const [amountVND, setAmountVND] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [transactedAt, setTransactedAt] = useState(new Date().toISOString().slice(0, 16));
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const selectedAsset = cryptoAssets.find((asset) => asset._id === assetId);
+  const amount = Number(amountVND) || 0;
+  const qty = Number(quantity) || 0;
+  const usdRate = exchangeRates.USD || 26200;
+  const entryPriceVND = qty > 0 ? amount / qty : 0;
+  const hasOpening = transactions.some((tx) => tx.assetId === assetId && tx.type === "opening");
 
-  for (const [currency, txs] of Object.entries(byCurrency)) {
-    let totalQuantity = 0;
-    let totalCostUSD = 0;
-    let realizedPnlUSD = 0;
-
-    // Sort by date ascending
-    const sorted = [...txs].sort(
-      (a, b) => new Date(a.transactedAt).getTime() - new Date(b.transactedAt).getTime()
-    );
-
-    for (const tx of sorted) {
-      if (tx.type === "buy") {
-        totalQuantity += tx.quantity;
-        totalCostUSD += tx.quantity * tx.pricePerUnit;
-      } else if (tx.type === "sell") {
-        // Realized P&L = (sell price - avg cost) * quantity
-        const avgCost = totalQuantity > 0 ? totalCostUSD / totalQuantity : 0;
-        realizedPnlUSD += (tx.pricePerUnit - avgCost) * tx.quantity;
-        totalQuantity = Math.max(0, totalQuantity - tx.quantity);
-        totalCostUSD = totalQuantity * avgCost;
-      }
-      // deposit/withdraw không ảnh hưởng cost basis
+  const submit = async () => {
+    setError("");
+    if (!selectedAsset) return setError("Bạn chưa có tài sản crypto để theo dõi");
+    if (amount <= 0 || qty <= 0) return setError("Số tiền và số lượng nhận được phải lớn hơn 0");
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          assetId,
+          type: mode,
+          currency: selectedAsset.currency,
+          quantity: qty,
+          pricePerUnit: entryPriceVND / usdRate,
+          totalValueVND: amount,
+          note: mode === "opening" ? "Số dư DCA ban đầu" : "DCA nhanh",
+          transactedAt: new Date(transactedAt).toISOString(),
+          enableTracking: true,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Không thể lưu giao dịch");
+      onSaved();
+    } catch (error: unknown) {
+      setError(error instanceof Error ? error.message : "Không thể lưu giao dịch");
+    } finally {
+      setSubmitting(false);
     }
+  };
 
-    if (totalQuantity <= 0) continue;
-
-    const avgCostUSD = totalQuantity > 0 ? totalCostUSD / totalQuantity : 0;
-    const currentPriceVND = exchangeRates[currency] || 0;
-    const currentPriceUSD = currentPriceVND / usdRate;
-    const currentValueUSD = totalQuantity * currentPriceUSD;
-    const unrealizedPnlUSD = currentValueUSD - totalCostUSD;
-    const unrealizedPnlPct = totalCostUSD > 0 ? (unrealizedPnlUSD / totalCostUSD) * 100 : 0;
-
-    rows.push({
-      currency,
-      totalQuantity,
-      totalCostUSD,
-      avgCostUSD,
-      currentPriceUSD,
-      currentValueUSD,
-      unrealizedPnlUSD,
-      unrealizedPnlPct,
-      realizedPnlUSD,
-    });
-  }
-
-  return rows.sort((a, b) => Math.abs(b.currentValueUSD) - Math.abs(a.currentValueUSD));
+  return (
+    <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-5">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <h3 className="font-bold text-gray-800">Theo dõi DCA nhanh</h3>
+          <p className="text-xs text-gray-500 mt-1">Mỗi lần mua chỉ cần nhập số tiền đã chi và lượng coin thực nhận.</p>
+        </div>
+        <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+      </div>
+      {cryptoAssets.length === 0 ? (
+        <div className="rounded-xl bg-amber-50 border border-amber-100 p-4 text-sm text-amber-700">Hãy thêm tài sản BTC hoặc crypto trước.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Tài sản</label>
+              <select value={assetId} onChange={(e) => { setAssetId(e.target.value); setMode(transactions.some((tx) => tx.assetId === e.target.value && tx.type === "opening") ? "buy" : "opening"); }} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm">
+                {cryptoAssets.map((asset) => <option key={asset._id} value={asset._id}>{asset.name} ({asset.currency})</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Loại cập nhật</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button onClick={() => setMode("buy")} className={`py-2.5 rounded-lg text-xs font-semibold ${mode === "buy" ? "bg-emerald-600 text-white" : "bg-gray-100 text-gray-600"}`}>Lần mua DCA</button>
+                <button disabled={hasOpening} onClick={() => setMode("opening")} className={`py-2.5 rounded-lg text-xs font-semibold disabled:opacity-40 ${mode === "opening" ? "bg-violet-600 text-white" : "bg-gray-100 text-gray-600"}`}>Số dư ban đầu</button>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{mode === "opening" ? "Tổng vốn đã bỏ (VND)" : "Số tiền đã chi (VND)"}</label>
+              <input type="number" min="0" step="any" value={amountVND} onChange={(e) => setAmountVND(e.target.value)} placeholder="Ví dụ: 5.000.000" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">{mode === "opening" ? `Tổng ${selectedAsset?.currency ?? "coin"} đang có` : `${selectedAsset?.currency ?? "Coin"} thực nhận`}</label>
+              <input type="number" min="0" step="any" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Ví dụ: 0.00125" className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Thời gian</label>
+              <input type="datetime-local" value={transactedAt} onChange={(e) => setTransactedAt(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+            </div>
+            {entryPriceVND > 0 && <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3"><p className="text-xs text-emerald-700">Giá mua quy đổi</p><p className="font-bold text-emerald-800">{formatVND(entryPriceVND)} VND/{selectedAsset?.currency}</p><p className="text-xs text-emerald-600">≈ {formatUSD(entryPriceVND / usdRate)}</p></div>}
+          </div>
+          {mode === "opening" && <p className="text-xs text-violet-600 mt-3">Chỉ khai báo một lần để làm mốc tính giá vốn. Số lượng tài sản sẽ được đồng bộ theo giao dịch từ đây.</p>}
+          {error && <div className="mt-3 flex items-center gap-2 text-red-600 text-sm"><AlertCircle className="w-4 h-4" />{error}</div>}
+          <div className="flex gap-3 mt-4"><button onClick={submit} disabled={submitting} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50">{submitting ? "Đang lưu..." : mode === "opening" ? "Lưu số dư ban đầu" : "Ghi nhận DCA"}</button><button onClick={onCancel} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm">Hủy</button></div>
+        </>
+      )}
+    </div>
+  );
 }
 
 // ─── TransactionForm ──────────────────────────────────────────────────────────
@@ -161,12 +220,14 @@ interface TransactionFormProps {
 
 function TransactionForm({ assets, exchangeRates, onSaved, onCancel }: TransactionFormProps) {
   const usdRate = exchangeRates["USD"] || 26200;
+  const initialCurrency = assets[0]?.currency?.toUpperCase();
+  const initialPrice = initialCurrency ? (exchangeRates[initialCurrency] || 0) / usdRate : 0;
 
   const [form, setForm] = useState({
     assetId: assets[0]?._id ?? "",
     type: "buy" as Transaction["type"],
     quantity: "",
-    pricePerUnit: "",    // USD
+    pricePerUnit: initialPrice > 0 ? initialPrice.toFixed(6) : "",    // USD
     note: "",
     transactedAt: new Date().toISOString().slice(0, 16),
   });
@@ -176,15 +237,6 @@ function TransactionForm({ assets, exchangeRates, onSaved, onCancel }: Transacti
   const selectedAsset = assets.find((a) => a._id === form.assetId);
   const currency = selectedAsset?.currency?.toUpperCase() ?? "VND";
   const isVND = currency === "VND";
-
-  // Auto-fill giá hiện tại khi chọn asset
-  useEffect(() => {
-    if (!selectedAsset) return;
-    const c = selectedAsset.currency.toUpperCase();
-    const rateVND = exchangeRates[c] || 0;
-    const priceUSD = rateVND > 0 ? rateVND / usdRate : 0;
-    setForm((f) => ({ ...f, pricePerUnit: priceUSD > 0 ? priceUSD.toFixed(6) : "" }));
-  }, [form.assetId]);
 
   const qty = parseFloat(form.quantity) || 0;
   const price = parseFloat(form.pricePerUnit) || 0;
@@ -218,8 +270,8 @@ function TransactionForm({ assets, exchangeRates, onSaved, onCancel }: Transacti
         throw new Error(d.error || "Lỗi tạo giao dịch");
       }
       onSaved();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Không thể lưu giao dịch");
     } finally {
       setSubmitting(false);
     }
@@ -238,7 +290,12 @@ function TransactionForm({ assets, exchangeRates, onSaved, onCancel }: Transacti
           <label className="block text-xs font-medium text-gray-600 mb-1">Tài sản *</label>
           <select
             value={form.assetId}
-            onChange={(e) => setForm({ ...form, assetId: e.target.value })}
+            onChange={(e) => {
+              const nextAsset = assets.find((asset) => asset._id === e.target.value);
+              const rateVND = nextAsset ? exchangeRates[nextAsset.currency.toUpperCase()] || 0 : 0;
+              const priceUSD = rateVND > 0 ? rateVND / usdRate : 0;
+              setForm({ ...form, assetId: e.target.value, pricePerUnit: priceUSD > 0 ? priceUSD.toFixed(6) : "" });
+            }}
             className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
           >
             {assets.map((a) => (
@@ -400,7 +457,7 @@ function TransactionList({
           className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg outline-none bg-white"
         >
           <option value="all">Tất cả loại</option>
-          {(["buy", "sell", "deposit", "withdraw"] as const).map((t) => (
+          {(["opening", "buy", "sell", "deposit", "withdraw"] as const).map((t) => (
             <option key={t} value={t}>{TX_TYPE_CONFIG[t].label}</option>
           ))}
         </select>
@@ -465,16 +522,353 @@ function TransactionList({
   );
 }
 
+// ─── Monthly DCA plan ───────────────────────────────────────────────────────
+
+function MonthlyDcaPlan({
+  rows,
+  assets,
+  transactions,
+  usdRate,
+  onPlanSaved,
+}: {
+  rows: CostBasisRow[];
+  assets: Asset[];
+  transactions: Transaction[];
+  usdRate: number;
+  onPlanSaved?: () => void | Promise<void>;
+}) {
+  const firstAsset = assets.find((asset) => asset._id === rows[0]?.assetId);
+  const firstCurrency = firstAsset?.dcaBudgetCurrency ?? "VND";
+  const firstBudget = firstAsset?.monthlyDcaBudgetAmount
+    ?? (firstCurrency === "USD" ? (firstAsset?.monthlyDcaBudgetVND || 0) / usdRate : firstAsset?.monthlyDcaBudgetVND || 0);
+  const [selectedAssetId, setSelectedAssetId] = useState(rows[0]?.assetId ?? "");
+  const [budgetCurrency, setBudgetCurrency] = useState<"VND" | "USD">(firstCurrency);
+  const [budgetInput, setBudgetInput] = useState(String(firstBudget || ""));
+  const [dayInput, setDayInput] = useState(String(firstAsset?.dcaDayOfMonth || 1));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const row = rows.find((item) => item.assetId === selectedAssetId) ?? rows[0];
+  const asset = assets.find((item) => item._id === row?.assetId);
+
+  if (!row || !asset) return null;
+
+  const now = new Date();
+  const monthlyTransactions = transactions.filter((tx) => {
+    const date = new Date(tx.transactedAt);
+    return tx.assetId === row.assetId && tx.type === "buy"
+      && date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  });
+  const spentVND = monthlyTransactions.reduce((sum, tx) => sum + tx.totalValueVND, 0);
+  const boughtQuantity = monthlyTransactions.reduce((sum, tx) => sum + tx.quantity, 0);
+  const budgetAmount = Number(budgetInput) || 0;
+  const budgetVND = budgetCurrency === "USD" ? budgetAmount * usdRate : budgetAmount;
+  const remainingVND = Math.max(0, budgetVND - spentVND);
+  const progress = budgetVND > 0 ? (spentVND / budgetVND) * 100 : 0;
+  const currentPriceVND = row.currentPriceUSD * usdRate;
+  const estimatedMore = currentPriceVND > 0 ? remainingVND / currentPriceVND : 0;
+  const displayMoney = (valueVND: number) => budgetCurrency === "USD"
+    ? formatUSD(valueVND / usdRate)
+    : `${formatVND(valueVND)} VND`;
+  const day = Math.min(28, Math.max(1, Number(dayInput) || 1));
+  const nextDcaDate = new Date(now.getFullYear(), now.getMonth(), day);
+  if (nextDcaDate < new Date(now.getFullYear(), now.getMonth(), now.getDate())) {
+    nextDcaDate.setMonth(nextDcaDate.getMonth() + 1);
+  }
+
+  const chooseAsset = (assetId: string) => {
+    const nextAsset = assets.find((item) => item._id === assetId);
+    const nextCurrency = nextAsset?.dcaBudgetCurrency ?? "VND";
+    const nextBudget = nextAsset?.monthlyDcaBudgetAmount
+      ?? (nextCurrency === "USD" ? (nextAsset?.monthlyDcaBudgetVND || 0) / usdRate : nextAsset?.monthlyDcaBudgetVND || 0);
+    setSelectedAssetId(assetId);
+    setBudgetCurrency(nextCurrency);
+    setBudgetInput(String(nextBudget || ""));
+    setDayInput(String(nextAsset?.dcaDayOfMonth || 1));
+    setMessage("");
+  };
+
+  const changeBudgetCurrency = (currency: "VND" | "USD") => {
+    if (currency === budgetCurrency) return;
+    const currentAmount = Number(budgetInput) || 0;
+    setBudgetInput(String(currency === "USD" ? Number((currentAmount / usdRate).toFixed(2)) : Math.round(currentAmount * usdRate)));
+    setBudgetCurrency(currency);
+  };
+
+  const save = async () => {
+    setMessage("");
+    if (budgetAmount <= 0) return setMessage("Nhập ngân sách DCA lớn hơn 0");
+    setSaving(true);
+    try {
+      const response = await fetch(`/api/assets/${row.assetId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          monthlyDcaBudgetVND: budgetVND,
+          monthlyDcaBudgetAmount: budgetAmount,
+          dcaBudgetCurrency: budgetCurrency,
+          dcaDayOfMonth: day,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Không thể lưu kế hoạch");
+      setMessage("Đã lưu kế hoạch DCA tháng");
+      await onPlanSaved?.();
+    } catch (error: unknown) {
+      setMessage(error instanceof Error ? error.message : "Không thể lưu kế hoạch");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-emerald-50 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2"><CalendarDays className="w-4 h-4 text-emerald-600" />Kế hoạch DCA tháng</h3>
+          <p className="text-xs text-gray-400 mt-1">Theo dõi ngân sách và tổng các lệnh mua trong tháng hiện tại.</p>
+        </div>
+        {rows.length > 1 && <select value={row.assetId} onChange={(event) => chooseAsset(event.target.value)} className="text-xs px-3 py-2 border border-gray-200 rounded-lg bg-white">{rows.map((item) => <option key={item.assetId} value={item.assetId}>{item.assetName} ({item.currency})</option>)}</select>}
+      </div>
+
+      <div className="p-5 grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-5">
+        <div className="space-y-3">
+          <div>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="block text-xs font-medium text-gray-600">Ngân sách mỗi tháng</label>
+              <div className="flex bg-gray-100 rounded-lg p-0.5">
+                {(["VND", "USD"] as const).map((currency) => <button key={currency} type="button" onClick={() => changeBudgetCurrency(currency)} className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${budgetCurrency === currency ? "bg-white text-emerald-700 shadow-sm" : "text-gray-500"}`}>{currency}</button>)}
+              </div>
+            </div>
+            <input type="number" min="0" step={budgetCurrency === "USD" ? "10" : "100000"} value={budgetInput} onChange={(event) => setBudgetInput(event.target.value)} placeholder={budgetCurrency === "USD" ? "Ví dụ: 200" : "Ví dụ: 5.000.000"} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
+            {budgetAmount > 0 && <p className="text-[11px] text-gray-400 mt-1">≈ {budgetCurrency === "USD" ? `${formatVND(budgetVND)} VND` : formatUSD(budgetVND / usdRate)}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Ngày dự kiến DCA hằng tháng</label>
+            <input type="number" min="1" max="28" value={dayInput} onChange={(event) => setDayInput(event.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
+          </div>
+          <button onClick={save} disabled={saving} className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2"><Save className="w-4 h-4" />{saving ? "Đang lưu..." : "Lưu kế hoạch"}</button>
+          {message && <p className={`text-xs ${message.startsWith("Đã") ? "text-emerald-600" : "text-red-600"}`}>{message}</p>}
+        </div>
+
+        <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
+          <div className="flex justify-between items-start gap-3">
+            <div><p className="text-xs text-gray-500">Tiến độ tháng {now.getMonth() + 1}/{now.getFullYear()}</p><p className="text-xl font-bold text-gray-800 mt-1">{displayMoney(spentVND)} / {budgetVND > 0 ? displayMoney(budgetVND) : "Chưa đặt"}</p></div>
+            <span className={`text-sm font-bold px-2.5 py-1 rounded-full ${progress >= 100 ? "bg-emerald-100 text-emerald-700" : "bg-indigo-100 text-indigo-700"}`}>{Math.round(progress)}%</span>
+          </div>
+          <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden mt-4"><div className={`h-full rounded-full transition-all ${progress >= 100 ? "bg-emerald-500" : "bg-indigo-500"}`} style={{ width: `${Math.min(100, progress)}%` }} /></div>
+          <div className="grid grid-cols-2 gap-3 mt-4">
+            <div className="bg-white rounded-xl p-3 border border-gray-100"><p className="text-[11px] text-gray-400">Đã mua tháng này</p><p className="text-sm font-bold text-gray-700 mt-1">{formatQty(boughtQuantity, row.currency)} {row.currency}</p><p className="text-[11px] text-gray-400">{monthlyTransactions.length} giao dịch</p></div>
+            <div className="bg-white rounded-xl p-3 border border-gray-100"><p className="text-[11px] text-gray-400">Ngân sách còn lại</p><p className="text-sm font-bold text-gray-700 mt-1">{displayMoney(remainingVND)}</p><p className="text-[11px] text-gray-400">≈ {formatQty(estimatedMore, row.currency)} {row.currency}</p></div>
+          </div>
+          <p className="text-xs text-gray-500 mt-4 flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" />Lần DCA kế tiếp dự kiến: <strong>{nextDcaDate.toLocaleDateString("vi-VN")}</strong></p>
+          {progress > 100 && <p className="text-xs text-amber-600 mt-2">Bạn đã vượt ngân sách {displayMoney(spentVND - budgetVND)} trong tháng này.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Cost basis history chart ───────────────────────────────────────────────
+
+function CostBasisChart({ rows, transactions, usdRate }: { rows: CostBasisRow[]; transactions: Transaction[]; usdRate: number }) {
+  const [selectedAssetId, setSelectedAssetId] = useState(rows[0]?.assetId ?? "");
+  const row = rows.find((item) => item.assetId === selectedAssetId) ?? rows[0];
+  if (!row) return null;
+
+  let quantity = 0;
+  let costUSD = 0;
+  const history: Array<{ date: Date; average: number; buyPrice: number }> = [];
+  const sorted = transactions.filter((tx) => tx.assetId === row.assetId).sort((a, b) => new Date(a.transactedAt).getTime() - new Date(b.transactedAt).getTime());
+  for (const tx of sorted) {
+    const fallbackPrice = tx.quantity > 0 ? (tx.totalValueVND / usdRate) / tx.quantity : 0;
+    const transactionPrice = tx.pricePerUnit > 0 ? tx.pricePerUnit : fallbackPrice;
+    if (tx.type === "opening" || tx.type === "buy") {
+      quantity += tx.quantity;
+      costUSD += tx.quantity * transactionPrice;
+      history.push({ date: new Date(tx.transactedAt), average: quantity > 0 ? costUSD / quantity : 0, buyPrice: transactionPrice });
+    } else if (tx.type === "sell") {
+      const sold = Math.min(quantity, tx.quantity);
+      const average = quantity > 0 ? costUSD / quantity : 0;
+      quantity -= sold;
+      costUSD -= sold * average;
+    }
+  }
+
+  if (history.length === 0) return null;
+  const points = [...history, { date: new Date(), average: history.at(-1)?.average ?? 0, buyPrice: 0 }];
+  const allValues = [...history.flatMap((point) => [point.average, point.buyPrice]), row.currentPriceUSD].filter((value) => value > 0);
+  const minValue = Math.min(...allValues) * 0.85;
+  const maxValue = Math.max(...allValues) * 1.15;
+  const width = 800;
+  const height = 280;
+  const padX = 62;
+  const padTop = 24;
+  const padBottom = 42;
+  const plotWidth = width - padX - 24;
+  const plotHeight = height - padTop - padBottom;
+  const x = (index: number) => padX + (index / Math.max(1, points.length - 1)) * plotWidth;
+  const y = (value: number) => padTop + ((maxValue - value) / Math.max(1, maxValue - minValue)) * plotHeight;
+  const line = points.map((point, index) => `${x(index)},${y(point.average)}`).join(" ");
+  const currentY = y(row.currentPriceUSD);
+
+  return (
+    <div className="bg-white rounded-2xl border border-blue-100 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-blue-50 flex items-center justify-between gap-3 flex-wrap">
+        <div><h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2"><LineChart className="w-4 h-4 text-blue-600" />Biểu đồ giá vốn</h3><p className="text-xs text-gray-400 mt-1">Đường giá vốn trung bình thay đổi sau mỗi lần mua.</p></div>
+        {rows.length > 1 && <select value={row.assetId} onChange={(event) => setSelectedAssetId(event.target.value)} className="text-xs px-3 py-2 border border-gray-200 rounded-lg bg-white">{rows.map((item) => <option key={item.assetId} value={item.assetId}>{item.assetName} ({item.currency})</option>)}</select>}
+      </div>
+      <div className="p-4 overflow-x-auto">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[650px] h-auto" role="img" aria-label="Biểu đồ lịch sử giá vốn">
+          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+            const value = maxValue - (maxValue - minValue) * ratio;
+            const lineY = padTop + plotHeight * ratio;
+            return <g key={ratio}><line x1={padX} x2={width - 24} y1={lineY} y2={lineY} stroke="#e5e7eb" strokeDasharray="4 4" /><text x={padX - 8} y={lineY + 4} textAnchor="end" fontSize="11" fill="#9ca3af">{formatUSD(value, 0)}</text></g>;
+          })}
+          <line x1={padX} x2={width - 24} y1={currentY} y2={currentY} stroke="#10b981" strokeWidth="2" strokeDasharray="7 5" />
+          <text x={width - 24} y={currentY - 7} textAnchor="end" fontSize="11" fontWeight="600" fill="#059669">Hiện tại {formatUSD(row.currentPriceUSD, 0)}</text>
+          <polyline points={line} fill="none" stroke="#4f46e5" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          {history.map((point, index) => <g key={`${point.date.toISOString()}-${index}`}><line x1={x(index)} x2={x(index)} y1={y(point.average)} y2={y(point.buyPrice)} stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="3 3" /><circle cx={x(index)} cy={y(point.buyPrice)} r="5" fill="#f59e0b" stroke="white" strokeWidth="2"><title>{point.date.toLocaleDateString("vi-VN")}: mua {formatUSD(point.buyPrice, 2)}, giá vốn còn {formatUSD(point.average, 2)}</title></circle><circle cx={x(index)} cy={y(point.average)} r="4" fill="#4f46e5" stroke="white" strokeWidth="2" /></g>)}
+          <text x={padX} y={height - 12} fontSize="11" fill="#9ca3af">{points[0].date.toLocaleDateString("vi-VN")}</text>
+          <text x={width - 24} y={height - 12} textAnchor="end" fontSize="11" fill="#9ca3af">Hiện tại</text>
+        </svg>
+        <div className="flex items-center justify-center gap-5 text-xs text-gray-500 pb-2 flex-wrap"><span className="flex items-center gap-1.5"><span className="w-5 h-1 rounded bg-indigo-600" />Giá vốn trung bình</span><span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" />Giá từng lần mua</span><span className="flex items-center gap-1.5"><span className="w-5 border-t-2 border-dashed border-emerald-500" />Giá hiện tại</span></div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Price scenario simulator ────────────────────────────────────────────────
+
+function PriceScenarioSimulator({ rows, usdRate }: { rows: CostBasisRow[]; usdRate: number }) {
+  const [selectedAssetId, setSelectedAssetId] = useState(rows[0]?.assetId ?? "");
+  const [priceRatio, setPriceRatio] = useState(100);
+  const row = rows.find((item) => item.assetId === selectedAssetId) ?? rows[0];
+
+  if (!row) return null;
+
+  const scenarioPriceUSD = row.currentPriceUSD * (priceRatio / 100);
+  const scenarioValueUSD = row.totalQuantity * scenarioPriceUSD;
+  const scenarioPnlUSD = scenarioValueUSD - row.totalCostUSD;
+  const scenarioPnlPct = row.totalCostUSD > 0 ? (scenarioPnlUSD / row.totalCostUSD) * 100 : 0;
+  const changeFromNowUSD = scenarioValueUSD - row.currentValueUSD;
+  const breakEvenRatio = row.currentPriceUSD > 0 ? (row.avgCostUSD / row.currentPriceUSD) * 100 : 100;
+  const sliderMin = Math.min(25, Math.floor(breakEvenRatio / 10) * 10);
+  const sliderMax = Math.max(250, Math.ceil(breakEvenRatio / 10) * 10 + 20);
+  const positive = scenarioPnlUSD >= 0;
+
+  const setPriceFromInput = (value: string) => {
+    const price = Number(value);
+    if (!Number.isFinite(price) || price < 0 || row.currentPriceUSD <= 0) return;
+    setPriceRatio((price / row.currentPriceUSD) * 100);
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-indigo-100 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 border-b border-indigo-50 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+            <SlidersHorizontal className="w-4 h-4 text-indigo-600" />
+            Mô phỏng giá và lãi/lỗ
+          </h3>
+          <p className="text-xs text-gray-400 mt-1">Kéo giá hoặc nhập mức giá bạn kỳ vọng.</p>
+        </div>
+        {rows.length > 1 && (
+          <select
+            value={row.assetId}
+            onChange={(event) => { setSelectedAssetId(event.target.value); setPriceRatio(100); }}
+            className="text-xs px-3 py-2 border border-gray-200 rounded-lg bg-white"
+          >
+            {rows.map((item) => <option key={item.assetId} value={item.assetId}>{item.assetName} ({item.currency})</option>)}
+          </select>
+        )}
+      </div>
+
+      <div className="p-5 grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5">
+        <div>
+          <div className="flex items-end justify-between gap-4 mb-4">
+            <div>
+              <p className="text-xs text-gray-500 mb-1">Giá {row.currency} giả định</p>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-400 font-semibold">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="100"
+                  value={Math.round(scenarioPriceUSD)}
+                  onChange={(event) => setPriceFromInput(event.target.value)}
+                  className="w-44 text-2xl font-bold text-gray-800 border-b-2 border-indigo-200 focus:border-indigo-500 outline-none bg-transparent"
+                />
+              </div>
+              <p className="text-xs text-gray-400 mt-1">≈ {formatVND(scenarioPriceUSD * usdRate)} VND/{row.currency}</p>
+            </div>
+            <span className={`text-sm font-bold px-3 py-1.5 rounded-full ${priceRatio >= 100 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+              {priceRatio >= 100 ? "+" : ""}{(priceRatio - 100).toFixed(1)}% so với hiện tại
+            </span>
+          </div>
+
+          <input
+            type="range"
+            min={sliderMin}
+            max={sliderMax}
+            step="0.25"
+            value={Math.min(sliderMax, Math.max(sliderMin, priceRatio))}
+            onChange={(event) => setPriceRatio(Number(event.target.value))}
+            className="w-full h-2 rounded-lg cursor-pointer accent-indigo-600"
+          />
+          <div className="flex justify-between text-[11px] text-gray-400 mt-1">
+            <span>{formatUSD(row.currentPriceUSD * sliderMin / 100, 0)}</span>
+            <span>Hiện tại: {formatUSD(row.currentPriceUSD, 0)}</span>
+            <span>{formatUSD(row.currentPriceUSD * sliderMax / 100, 0)}</span>
+          </div>
+
+          <div className="flex gap-2 mt-4 flex-wrap">
+            <button onClick={() => setPriceRatio(100)} className="text-xs px-3 py-2 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 flex items-center gap-1.5">
+              <RotateCcw className="w-3.5 h-3.5" /> Giá hiện tại
+            </button>
+            <button onClick={() => setPriceRatio(breakEvenRatio)} className="text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 flex items-center gap-1.5">
+              <Target className="w-3.5 h-3.5" /> Hòa vốn: {formatUSD(row.avgCostUSD, 0)}
+            </button>
+            {[80, 120, 150, 200].map((ratio) => (
+              <button key={ratio} onClick={() => setPriceRatio(ratio)} className="text-xs px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:border-indigo-300">
+                {ratio}% giá hiện tại
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className={`rounded-2xl border p-5 ${positive ? "bg-emerald-50 border-emerald-100" : "bg-red-50 border-red-100"}`}>
+          <p className="text-xs text-gray-500">Nếu {row.currency} ở mức giá này, bạn sẽ</p>
+          <p className={`text-2xl font-bold mt-1 ${positive ? "text-emerald-700" : "text-red-600"}`}>
+            {positive ? "Lãi " : "Lỗ "}{formatUSD(Math.abs(scenarioPnlUSD))}
+          </p>
+          <p className={`text-sm font-semibold mt-1 ${positive ? "text-emerald-600" : "text-red-500"}`}>
+            {positive ? "+" : "-"}{formatVND(Math.abs(scenarioPnlUSD * usdRate))} VND ({scenarioPnlPct >= 0 ? "+" : ""}{scenarioPnlPct.toFixed(1)}%)
+          </p>
+          <div className="border-t border-black/5 mt-4 pt-3 space-y-2 text-xs">
+            <div className="flex justify-between gap-3"><span className="text-gray-500">Giá trị tài sản</span><span className="font-semibold text-gray-700">{formatUSD(scenarioValueUSD)} · {formatVND(scenarioValueUSD * usdRate)} VND</span></div>
+            <div className="flex justify-between gap-3"><span className="text-gray-500">So với hiện tại</span><span className={`font-semibold ${changeFromNowUSD >= 0 ? "text-emerald-700" : "text-red-600"}`}>{changeFromNowUSD >= 0 ? "+" : ""}{formatUSD(changeFromNowUSD)}</span></div>
+            <div className="flex justify-between gap-3"><span className="text-gray-500">Số lượng đang giữ</span><span className="font-semibold text-gray-700">{formatQty(row.totalQuantity, row.currency)} {row.currency}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── PnLView ──────────────────────────────────────────────────────────────────
 
 function PnLView({
   transactions,
   exchangeRates,
   loading,
+  assets,
+  onPlanSaved,
 }: {
   transactions: Transaction[];
   exchangeRates: Record<string, number>;
   loading: boolean;
+  assets: Asset[];
+  onPlanSaved?: () => void | Promise<void>;
 }) {
   const usdRate = exchangeRates["USD"] || 26200;
   const rows = calcCostBasis(transactions, exchangeRates);
@@ -526,6 +920,12 @@ function PnLView({
         </div>
       </div>
 
+      <MonthlyDcaPlan rows={rows} assets={assets} transactions={transactions} usdRate={usdRate} onPlanSaved={onPlanSaved} />
+
+      <PriceScenarioSimulator rows={rows} usdRate={usdRate} />
+
+      <CostBasisChart rows={rows} transactions={transactions} usdRate={usdRate} />
+
       {/* Cost basis table */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-50">
@@ -545,13 +945,13 @@ function PnLView({
             </thead>
             <tbody className="divide-y divide-gray-50">
               {rows.map((row) => (
-                <tr key={row.currency} className="hover:bg-gray-50 transition-colors">
+                <tr key={row.assetId} className="hover:bg-gray-50 transition-colors">
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
                         <span className="text-indigo-700 font-bold text-xs">{row.currency.slice(0, 3)}</span>
                       </div>
-                      <span className="font-semibold text-gray-800">{row.currency}</span>
+                      <div><span className="font-semibold text-gray-800">{row.currency}</span><p className="text-xs text-gray-400">{row.assetName}</p></div>
                     </div>
                   </td>
                   <td className="px-4 py-4 text-right text-gray-700">
@@ -582,7 +982,7 @@ function PnLView({
       </div>
 
       <p className="text-xs text-gray-400 text-center">
-        * Giá vốn tính theo FIFO. Chỉ tính cho các giao dịch loại &quot;Mua&quot; và &quot;Bán&quot;.
+        * Giá vốn được tính theo phương pháp trung bình gia quyền từ số dư ban đầu và các lần mua DCA.
       </p>
     </div>
   );
@@ -590,11 +990,12 @@ function PnLView({
 
 // ─── Main TransactionView ─────────────────────────────────────────────────────
 
-export default function TransactionView({ assets, exchangeRates }: TransactionViewProps) {
+export default function TransactionView({ assets, exchangeRates, onTransactionsChanged }: TransactionViewProps) {
   const [subTab, setSubTab] = useState<"log" | "pnl">("log");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showQuickDca, setShowQuickDca] = useState(false);
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
@@ -609,13 +1010,17 @@ export default function TransactionView({ assets, exchangeRates }: TransactionVi
     }
   }, []);
 
-  useEffect(() => { fetchTransactions(); }, [fetchTransactions]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchTransactions();
+  }, [fetchTransactions]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Xóa giao dịch này?")) return;
     try {
       await fetch(`/api/transactions/${id}`, { method: "DELETE" });
-      setTransactions((prev) => prev.filter((t) => t._id !== id));
+      await fetchTransactions();
+      await onTransactionsChanged?.();
     } catch (e) {
       console.error("delete error:", e);
     }
@@ -640,20 +1045,27 @@ export default function TransactionView({ assets, exchangeRates }: TransactionVi
           </button>
         </div>
 
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-md"
-        >
-          <Plus className="w-4 h-4" />Thêm giao dịch
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => { setShowQuickDca(!showQuickDca); setShowForm(false); }} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-md"><TrendingUp className="w-4 h-4" />DCA nhanh</button>
+          <button onClick={() => { setShowForm(!showForm); setShowQuickDca(false); }} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-md"><Plus className="w-4 h-4" />Thêm giao dịch</button>
+        </div>
       </div>
 
       {/* Form */}
+      {showQuickDca && (
+        <QuickDcaForm
+          assets={assets}
+          exchangeRates={exchangeRates}
+          transactions={transactions}
+          onSaved={async () => { setShowQuickDca(false); await fetchTransactions(); await onTransactionsChanged?.(); }}
+          onCancel={() => setShowQuickDca(false)}
+        />
+      )}
       {showForm && (
         <TransactionForm
           assets={assets}
           exchangeRates={exchangeRates}
-          onSaved={() => { setShowForm(false); fetchTransactions(); }}
+          onSaved={async () => { setShowForm(false); await fetchTransactions(); await onTransactionsChanged?.(); }}
           onCancel={() => setShowForm(false)}
         />
       )}
@@ -671,6 +1083,8 @@ export default function TransactionView({ assets, exchangeRates }: TransactionVi
           transactions={transactions}
           exchangeRates={exchangeRates}
           loading={loading}
+          assets={assets}
+          onPlanSaved={onTransactionsChanged}
         />
       )}
     </div>

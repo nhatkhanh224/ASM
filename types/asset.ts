@@ -20,6 +20,11 @@ export interface Asset {
   originalValue: number;
   currency: Currency;
   note?: string;
+  trackingMode?: "manual" | "transactions";
+  monthlyDcaBudgetVND?: number;
+  monthlyDcaBudgetAmount?: number;
+  dcaBudgetCurrency?: "VND" | "USD";
+  dcaDayOfMonth?: number;
 
   isFutures?: boolean;
   coinSymbol?: string;

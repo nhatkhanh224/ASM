@@ -5,7 +5,7 @@ export interface ITransaction {
   userId: Types.ObjectId
   assetId: string        // ref to Asset._id
   assetName: string      // denormalized for display
-  type: 'buy' | 'sell' | 'deposit' | 'withdraw'
+  type: 'opening' | 'buy' | 'sell' | 'deposit' | 'withdraw'
   currency: string       // BTC, ETH, VND, USD...
   quantity: number       // số lượng coin/tiền
   pricePerUnit: number   // giá mỗi đơn vị tại thời điểm giao dịch (USD)
@@ -20,7 +20,7 @@ const TransactionSchema = new Schema<ITransaction>(
     userId:        { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     assetId:       { type: String, required: true, index: true },
     assetName:     { type: String, required: true },
-    type:          { type: String, enum: ['buy', 'sell', 'deposit', 'withdraw'], required: true },
+    type:          { type: String, enum: ['opening', 'buy', 'sell', 'deposit', 'withdraw'], required: true },
     currency:      { type: String, required: true },
     quantity:      { type: Number, required: true },
     pricePerUnit:  { type: Number, required: true, default: 0 }, // 0 nếu là VND deposit/withdraw

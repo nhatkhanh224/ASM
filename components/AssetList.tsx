@@ -4,17 +4,20 @@ import React from "react";
 import { Wallet, Edit2, Trash2 } from "lucide-react";
 import { Asset, AssetWithRate } from "@/types/asset";
 import { ASSET_TYPE_CONFIG } from "@/libs/assetHelpers";
+import type { AssetPnlSummary } from "@/types/transaction";
 
 interface AssetListProps {
   assetsWithRate: AssetWithRate[];
   onDelete: (id: string) => void;
   onEdit: (asset: Asset) => void;
+  pnlByAssetId?: Record<string, AssetPnlSummary>;
 }
 
 export default function AssetList({
   assetsWithRate,
   onDelete,
   onEdit,
+  pnlByAssetId = {},
 }: AssetListProps) {
   const total = assetsWithRate.reduce((sum, a) => sum + a.currentValueInVND, 0);
   const sorted = [...assetsWithRate].sort(
@@ -50,6 +53,7 @@ export default function AssetList({
           const hasRateChanged = Math.abs(asset.currentValueInVND - asset.value) > 1;
 
           const isGold = asset.type === "gold";
+          const pnl = pnlByAssetId[asset._id];
 
           return (
             <div
@@ -128,6 +132,20 @@ export default function AssetList({
                           <p className="text-xs text-blue-600 mt-1">
                             Đã cập nhật tỷ giá
                           </p>
+                        )}
+                        {pnl && asset.trackingMode === "transactions" && (
+                          <div className={`mt-2 rounded-lg px-3 py-2 text-left border ${pnl.unrealizedPnlVND >= 0 ? "bg-emerald-50 border-emerald-100" : "bg-red-50 border-red-100"}`}>
+                            <div className="flex items-center justify-between gap-4 text-xs">
+                              <span className="text-gray-500">Giá vốn TB</span>
+                              <span className="font-medium text-gray-700">{Math.round(pnl.avgCostVND).toLocaleString("vi-VN")} VND/{pnl.currency}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-4 text-xs mt-1">
+                              <span className="text-gray-500">Đang {pnl.unrealizedPnlVND >= 0 ? "lãi" : "lỗ"}</span>
+                              <span className={`font-bold ${pnl.unrealizedPnlVND >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                                {pnl.unrealizedPnlVND >= 0 ? "+" : ""}{Math.round(pnl.unrealizedPnlVND).toLocaleString("vi-VN")} VND ({pnl.unrealizedPnlPct >= 0 ? "+" : ""}{pnl.unrealizedPnlPct.toFixed(1)}%)
+                              </span>
+                            </div>
+                          </div>
                         )}
                       </>
                     )}

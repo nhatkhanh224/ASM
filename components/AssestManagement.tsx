@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { takeSnapshot } from "@/libs/snapshot";
 import { Asset, ExchangeRates } from "@/types/asset";
+import type { AssetPnlSummary, TransactionRecord } from "@/types/transaction";
+import { calculatePortfolioPnl } from "@/libs/portfolioCalculator";
 import {
   DEFAULT_EXCHANGE_RATES,
   getErrorMessage,
@@ -52,6 +54,7 @@ export default function AssetManagementApp() {
   >("list");
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
   const [showShareCard, setShowShareCard] = useState(false);
+  const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
 
   const formRef = useRef<HTMLDivElement>(null);
 
@@ -74,6 +77,17 @@ export default function AssetManagementApp() {
     }
   };
 
+  const fetchTransactions = async () => {
+    try {
+      const res = await fetch("/api/transactions");
+      if (!res.ok) return;
+      const data = await safeParseJson(res);
+      if (Array.isArray(data)) setTransactions(data);
+    } catch (error) {
+      console.error("fetchTransactions error:", error);
+    }
+  };
+
   const getExtraCoins = (currentAssets: Asset[]) => {
     const defaultCoins = new Set([
       "VND",
@@ -91,14 +105,15 @@ export default function AssetManagementApp() {
 
   // 1. Load assets + rates khi mount, dùng retry
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchAssets();
+    fetchTransactions();
     fetchRatesWithRetry([]).then((rates) => {
       if (rates) {
         setExchangeRates(rates);
         setRatesReady(true);
       }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 2. Khi assets load xong, fetch rates kèm extra coins (retry)
@@ -137,10 +152,12 @@ export default function AssetManagementApp() {
       });
     }, 10 * 60 * 1000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assets]);
 
   const assetsWithRate = applyRates(assets, exchangeRates);
+  const pnlByAssetId = Object.fromEntries(
+    calculatePortfolioPnl(transactions, exchangeRates).map((row) => [row.assetId, row]),
+  ) as Record<string, AssetPnlSummary>;
   const totalVND = assetsWithRate.reduce(
     (sum, a) => sum + a.currentValueInVND,
     0
@@ -311,10 +328,17 @@ export default function AssetManagementApp() {
             assetsWithRate={assetsWithRate}
             onDelete={handleDelete}
             onEdit={handleEdit}
+            pnlByAssetId={pnlByAssetId}
           />
         )}
         {view === "transactions" && (
-          <TransactionView assets={assets} exchangeRates={exchangeRates} />
+          <TransactionView
+            assets={assets}
+            exchangeRates={exchangeRates}
+            onTransactionsChanged={async () => {
+              await Promise.all([fetchAssets(), fetchTransactions()]);
+            }}
+          />
         )}
         {view === "chart" && <AssetChart assetsWithRate={assetsWithRate} />}
         {view === "history" && <HistoryView assets={assets} />}

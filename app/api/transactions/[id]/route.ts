@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { connectDB } from '@/libs/db'
 import { Transaction } from '@/models/Transaction'
 import { getUserIdFromRequest } from '@/libs/auth'
+import { Asset } from '@/models/Asset'
+import { calculateTrackedQuantity } from '@/libs/portfolioCalculator'
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Có lỗi xảy ra'
 
@@ -18,6 +20,13 @@ export async function DELETE(
 
     const tx = await Transaction.findOneAndDelete({ _id: id, userId })
     if (!tx) return NextResponse.json({ error: 'Không tìm thấy giao dịch' }, { status: 404 })
+
+    const asset = await Asset.findOne({ _id: tx.assetId, userId })
+    if (asset?.trackingMode === 'transactions') {
+      const ledger = await Transaction.find({ userId, assetId: tx.assetId }).sort({ transactedAt: 1 }).lean()
+      asset.originalValue = calculateTrackedQuantity(ledger)
+      await asset.save()
+    }
 
     return NextResponse.json({ message: 'Đã xóa', tx })
   } catch (error: unknown) {
