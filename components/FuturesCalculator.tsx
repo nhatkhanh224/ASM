@@ -1,22 +1,27 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Calculator, TrendingUp, DollarSign, Activity, RefreshCw } from "lucide-react";
+import { Activity, RefreshCw } from "lucide-react";
 
 interface TickerPrice {
   symbol: string;
-  price: string;
+  price: number;
+  source: string;
 }
 
-const DEFAULT_COINS = [
-  "BTC",
-  "ETH",
-  "BNB",
-  "SOL",
-  "XRP",
-  "ADA",
-  "DOGE"
+const CRYPTO_MARKETS = ["BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "DOGE"];
+const STOCK_MARKETS = [
+  { symbol: "NVDA", name: "NVIDIA" },
+  { symbol: "SPCX", name: "SpaceX" },
+  { symbol: "TSLA", name: "Tesla" },
+  { symbol: "AAPL", name: "Apple" },
+  { symbol: "MSFT", name: "Microsoft" },
+  { symbol: "GOOGL", name: "Alphabet" },
+  { symbol: "AMZN", name: "Amazon" },
+  { symbol: "META", name: "Meta" },
+  { symbol: "PLTR", name: "Palantir" },
 ];
+const STOCK_SYMBOLS = new Set(STOCK_MARKETS.map((market) => market.symbol));
 
 export default function FuturesCalculator() {
   const [margin, setMargin] = useState<string>("100");
@@ -27,20 +32,22 @@ export default function FuturesCalculator() {
   const [positionSide, setPositionSide] = useState<"LONG" | "SHORT">("LONG");
   const [isLoadingPrice, setIsLoadingPrice] = useState(false);
   const [priceError, setPriceError] = useState<string | null>(null);
+  const [priceSource, setPriceSource] = useState<string | null>(null);
 
   const fetchPrice = async (coin: string) => {
     if (!coin) return;
     setIsLoadingPrice(true);
     setPriceError(null);
+    setPriceSource(null);
     try {
-      const apiSymbol = coin.toUpperCase().endsWith('USDT') ? coin.toUpperCase() : coin.toUpperCase() + 'USDT';
-      const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${apiSymbol}`);
-      if (!res.ok) throw new Error("Network response was not ok");
+      const res = await fetch(`/api/market-price?symbol=${encodeURIComponent(coin)}`);
       const data: TickerPrice = await res.json();
-      setEntryPrice(parseFloat(data.price).toString());
+      if (!res.ok) throw new Error((data as TickerPrice & { error?: string }).error || "Không tìm thấy giá");
+      setEntryPrice(data.price.toString());
+      setPriceSource(data.source);
     } catch (error) {
       console.error("Error fetching price:", error);
-      setPriceError("Không tìm thấy giá tự động. Bạn vẫn có thể nhập giá thủ công.");
+      setPriceError(error instanceof Error ? error.message : "Không tìm thấy giá tự động. Bạn vẫn có thể nhập giá thủ công.");
     } finally {
       setIsLoadingPrice(false);
     }
@@ -58,6 +65,8 @@ export default function FuturesCalculator() {
   const leverageNum = parseFloat(leverage) || 1;
   const entryPriceNum = parseFloat(entryPrice) || 0;
   const targetPriceNum = parseFloat(targetPrice) || 0;
+  const normalizedSymbol = coinSymbol.toUpperCase().replace("USDT", "");
+  const isStockRepresentative = STOCK_SYMBOLS.has(normalizedSymbol);
 
   const notionalSize = marginNum * leverageNum; // Total position size in USDT
   const coinSize = entryPriceNum > 0 ? notionalSize / entryPriceNum : 0; // Size in Coin
@@ -132,20 +141,30 @@ export default function FuturesCalculator() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Đồng coin (VD: BTC, ETH, PEPE)</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Tài sản giao dịch</label>
             <input
               type="text"
-              list="default-coins"
+              list="default-markets"
               value={coinSymbol}
               onChange={(e) => setCoinSymbol(e.target.value.toUpperCase())}
               className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white/50 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all font-medium text-slate-800 outline-none uppercase"
-              placeholder="VD: BTC, PEPE"
+              placeholder="VD: BTC, NVDA, SPCX"
             />
-            <datalist id="default-coins">
-              {DEFAULT_COINS.map(coin => (
-                <option key={coin} value={coin} />
+            <datalist id="default-markets">
+              {CRYPTO_MARKETS.map(coin => (
+                <option key={coin} value={coin}>Crypto · {coin}</option>
               ))}
+              {STOCK_MARKETS.map((market) => <option key={market.symbol} value={market.symbol}>Cổ phiếu đại diện · {market.name}</option>)}
             </datalist>
+            <div className="mt-3 space-y-2">
+              <MarketShortcuts label="Crypto" markets={CRYPTO_MARKETS.map((symbol) => ({ symbol, name: symbol }))} selected={normalizedSymbol} onSelect={setCoinSymbol} />
+              <MarketShortcuts label="Cổ phiếu" markets={STOCK_MARKETS} selected={normalizedSymbol} onSelect={setCoinSymbol} />
+            </div>
+            {isStockRepresentative && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {normalizedSymbol === "SPCX" ? "SPCX là sản phẩm đại diện giá SpaceX trên thị trường perpetual/private." : `${normalizedSymbol} là sản phẩm perpetual/token hóa đại diện cổ phiếu.`} Không đồng nghĩa với việc sở hữu cổ phiếu thật hoặc quyền cổ đông.
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -191,6 +210,7 @@ export default function FuturesCalculator() {
                 placeholder="Đang tải..."
               />
               {priceError && <p className="text-xs text-rose-500 mt-1">{priceError}</p>}
+              {priceSource && <p className="mt-1 text-xs text-emerald-600">Giá từ {priceSource}</p>}
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Giá mục tiêu (Target Price)</label>
@@ -249,6 +269,37 @@ export default function FuturesCalculator() {
             * Giá thanh lý chỉ mang tính chất tham khảo cho Isolated Margin và chưa bao gồm phí giao dịch, funding rate.
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MarketShortcuts({
+  label,
+  markets,
+  selected,
+  onSelect,
+}: {
+  label: string;
+  markets: Array<{ symbol: string; name: string }>;
+  selected: string;
+  onSelect: (symbol: string) => void;
+}) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="w-14 shrink-0 pt-1 text-xs font-medium text-slate-400">{label}</span>
+      <div className="flex flex-wrap gap-1.5">
+        {markets.map((market) => (
+          <button
+            key={market.symbol}
+            type="button"
+            onClick={() => onSelect(market.symbol)}
+            title={market.name}
+            className={`rounded-md border px-2 py-1 text-xs font-semibold transition ${selected === market.symbol ? "border-amber-400 bg-amber-100 text-amber-800" : "border-slate-200 bg-white text-slate-500 hover:border-amber-300 hover:text-amber-700"}`}
+          >
+            {market.symbol}
+          </button>
+        ))}
       </div>
     </div>
   );
