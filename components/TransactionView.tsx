@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { calculatePortfolioPnl } from "@/libs/portfolioCalculator";
 import type { TransactionRecord } from "@/types/transaction";
+import type { Debt } from "@/types/debt";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -110,7 +111,7 @@ function calcCostBasis(
 
 // ─── Quick DCA / Opening Balance ─────────────────────────────────────────────
 
-function QuickDcaForm({ assets, exchangeRates, transactions, onSaved, onCancel }: TransactionFormProps & { transactions: Transaction[] }) {
+function QuickDcaForm({ assets, exchangeRates, transactions, debts, onSaved, onCancel }: TransactionFormProps & { transactions: Transaction[]; debts: Debt[] }) {
   const cryptoAssets = assets.filter((asset) => asset.currency.toUpperCase() !== "VND" && !asset.type?.includes("property"));
   const [assetId, setAssetId] = useState(cryptoAssets[0]?._id ?? "");
   const [mode, setMode] = useState<"opening" | "buy">(
@@ -121,17 +122,21 @@ function QuickDcaForm({ assets, exchangeRates, transactions, onSaved, onCancel }
   const [transactedAt, setTransactedAt] = useState(new Date().toISOString().slice(0, 16));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [fundingSource, setFundingSource] = useState<"personal" | "debt">("personal");
+  const [debtId, setDebtId] = useState("");
   const selectedAsset = cryptoAssets.find((asset) => asset._id === assetId);
   const amount = Number(amountVND) || 0;
   const qty = Number(quantity) || 0;
   const usdRate = exchangeRates.USD || 26200;
   const entryPriceVND = qty > 0 ? amount / qty : 0;
   const hasOpening = transactions.some((tx) => tx.assetId === assetId && tx.type === "opening");
+  const availableDebts = debts.filter((debt) => debt.type === "borrowed" && debt.status === "active" && debt.purpose === "investment" && debt.linkedAssetId === assetId);
 
   const submit = async () => {
     setError("");
     if (!selectedAsset) return setError("Bạn chưa có tài sản crypto để theo dõi");
     if (amount <= 0 || qty <= 0) return setError("Số tiền và số lượng nhận được phải lớn hơn 0");
+    if (mode === "buy" && fundingSource === "debt" && !debtId) return setError("Chọn khoản vay dùng cho lần mua này");
     setSubmitting(true);
     try {
       const res = await fetch("/api/transactions", {
@@ -147,6 +152,8 @@ function QuickDcaForm({ assets, exchangeRates, transactions, onSaved, onCancel }
           note: mode === "opening" ? "Số dư DCA ban đầu" : "DCA nhanh",
           transactedAt: new Date(transactedAt).toISOString(),
           enableTracking: true,
+          fundingSource: mode === "buy" ? fundingSource : "personal",
+          debtId: mode === "buy" && fundingSource === "debt" ? debtId : undefined,
         }),
       });
       const data = await res.json();
@@ -175,7 +182,7 @@ function QuickDcaForm({ assets, exchangeRates, transactions, onSaved, onCancel }
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Tài sản</label>
-              <select value={assetId} onChange={(e) => { setAssetId(e.target.value); setMode(transactions.some((tx) => tx.assetId === e.target.value && tx.type === "opening") ? "buy" : "opening"); }} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm">
+              <select value={assetId} onChange={(e) => { setAssetId(e.target.value); setMode(transactions.some((tx) => tx.assetId === e.target.value && tx.type === "opening") ? "buy" : "opening"); setFundingSource("personal"); setDebtId(""); }} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm">
                 {cryptoAssets.map((asset) => <option key={asset._id} value={asset._id}>{asset.name} ({asset.currency})</option>)}
               </select>
             </div>
@@ -198,6 +205,20 @@ function QuickDcaForm({ assets, exchangeRates, transactions, onSaved, onCancel }
               <label className="block text-xs font-medium text-gray-600 mb-1">Thời gian</label>
               <input type="datetime-local" value={transactedAt} onChange={(e) => setTransactedAt(e.target.value)} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
             </div>
+            {mode === "buy" && <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Nguồn tiền</label>
+              <select value={fundingSource} onChange={(e) => { setFundingSource(e.target.value as "personal" | "debt"); setDebtId(""); }} className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm">
+                <option value="personal">Tiền cá nhân</option>
+                <option value="debt" disabled={availableDebts.length === 0}>Tiền vay {availableDebts.length === 0 ? "(chưa có khoản phù hợp)" : ""}</option>
+              </select>
+            </div>}
+            {mode === "buy" && fundingSource === "debt" && <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Khoản vay đầu tư</label>
+              <select value={debtId} onChange={(e) => setDebtId(e.target.value)} className="w-full px-3 py-2.5 border border-amber-200 bg-amber-50 rounded-lg text-sm">
+                <option value="">Chọn khoản vay</option>
+                {availableDebts.map((debt) => <option key={debt._id} value={debt._id}>{debt.name} · {debt.amount.toLocaleString()} {debt.currency}</option>)}
+              </select>
+            </div>}
             {entryPriceVND > 0 && <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3"><p className="text-xs text-emerald-700">Giá mua quy đổi</p><p className="font-bold text-emerald-800">{formatVND(entryPriceVND)} VND/{selectedAsset?.currency}</p><p className="text-xs text-emerald-600">≈ {formatUSD(entryPriceVND / usdRate)}</p></div>}
           </div>
           {mode === "opening" && <p className="text-xs text-violet-600 mt-3">Chỉ khai báo một lần để làm mốc tính giá vốn. Số lượng tài sản sẽ được đồng bộ theo giao dịch từ đây.</p>}
@@ -492,6 +513,7 @@ function TransactionList({
                   <p className="text-xs text-gray-400 mt-0.5">
                     {formatDate(tx.transactedAt)}
                     {tx.note && <span className="ml-2 italic">&quot;{tx.note}&quot;</span>}
+                    {tx.fundingSource === "debt" && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-700">Vốn vay</span>}
                   </p>
                 </div>
 
@@ -996,13 +1018,18 @@ export default function TransactionView({ assets, exchangeRates, onTransactionsC
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showQuickDca, setShowQuickDca] = useState(false);
+  const [investmentDebts, setInvestmentDebts] = useState<Debt[]>([]);
 
   const fetchTransactions = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/transactions");
+      const [res, debtResponse] = await Promise.all([fetch("/api/transactions"), fetch("/api/debts")]);
       const data = await res.json();
       if (Array.isArray(data)) setTransactions(data);
+      if (debtResponse.ok) {
+        const debtData = await debtResponse.json();
+        if (Array.isArray(debtData)) setInvestmentDebts(debtData);
+      }
     } catch (e) {
       console.error("fetchTransactions error:", e);
     } finally {
@@ -1057,6 +1084,7 @@ export default function TransactionView({ assets, exchangeRates, onTransactionsC
           assets={assets}
           exchangeRates={exchangeRates}
           transactions={transactions}
+          debts={investmentDebts}
           onSaved={async () => { setShowQuickDca(false); await fetchTransactions(); await onTransactionsChanged?.(); }}
           onCancel={() => setShowQuickDca(false)}
         />

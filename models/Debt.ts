@@ -32,6 +32,11 @@ const DebtSchema = new Schema(
       default: 'VND',
     },
     interestRate: { type: Number },
+    interestRateUnit: { type: String, enum: ['annual', 'monthly'], default: 'annual' },
+    purpose: { type: String, enum: ['general', 'investment'], default: 'general' },
+    linkedAssetId: { type: String },
+    linkedAssetName: { type: String },
+    investmentFee: { type: Number, min: 0, default: 0 },
     dueDate: { type: Date },
     status: {
       type: String,
@@ -41,7 +46,7 @@ const DebtSchema = new Schema(
     },
     repaymentMode: {
       type: String,
-      enum: ['single', 'installment'],
+      enum: ['single', 'installment', 'interest_only'],
       default: 'single',
     },
     calculationMethod: {

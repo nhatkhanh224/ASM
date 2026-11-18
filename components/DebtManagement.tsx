@@ -4,9 +4,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   Plus, CreditCard, ArrowUpRight, ArrowDownRight, Edit2, Trash2,
   CalendarDays, ChevronDown, ChevronUp, Check, RotateCcw,
+  TrendingUp, AlertTriangle,
 } from "lucide-react";
 import { Debt, DebtCalculationMethod, DebtInstallment, RepaymentMode } from "@/types/debt";
-import { ExchangeRates } from "@/types/asset";
+import { Asset, ExchangeRates } from "@/types/asset";
+import { TransactionRecord } from "@/types/transaction";
 import { DEFAULT_EXCHANGE_RATES, fetchRatesWithRetry, formatCurrency } from "@/libs/assetHelpers";
 import { generateInstallments, getDebtScheduleSummary } from "@/libs/debtCalculator";
 
@@ -23,6 +25,10 @@ type DebtForm = {
   calculationMethod: DebtCalculationMethod;
   firstPaymentDate: string;
   termMonths: string;
+  purpose: "general" | "investment";
+  linkedAssetId: string;
+  interestRateUnit: "annual" | "monthly";
+  investmentFee: string;
 };
 
 const toDateInput = (value?: string) => value ? new Date(value).toISOString().split("T")[0] : "";
@@ -46,6 +52,10 @@ const makeInitialForm = (): DebtForm => ({
   calculationMethod: "equal_payment",
   firstPaymentDate: nextMonthDate(),
   termMonths: "12",
+  purpose: "general",
+  linkedAssetId: "",
+  interestRateUnit: "annual",
+  investmentFee: "",
 });
 
 export default function DebtManagement() {
@@ -58,6 +68,8 @@ export default function DebtManagement() {
   const [updatingInstallment, setUpdatingInstallment] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [rates, setRates] = useState<ExchangeRates>(DEFAULT_EXCHANGE_RATES);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [transactions, setTransactions] = useState<TransactionRecord[]>([]);
 
   const fetchDebts = async () => {
     try {
@@ -68,25 +80,37 @@ export default function DebtManagement() {
     }
   };
 
+  const fetchInvestmentData = async () => {
+    try {
+      const [assetsResponse, transactionsResponse] = await Promise.all([fetch("/api/assets"), fetch("/api/transactions")]);
+      if (assetsResponse.ok) setAssets(await assetsResponse.json());
+      if (transactionsResponse.ok) setTransactions(await transactionsResponse.json());
+    } catch (fetchError) {
+      console.error("Error fetching investment data", fetchError);
+    }
+  };
+
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchDebts();
+    fetchInvestmentData();
     fetchRatesWithRetry([], 2).then((freshRates) => {
       if (freshRates) setRates(freshRates);
     });
   }, []);
 
   const previewInstallments = useMemo(() => {
-    if (form.repaymentMode !== "installment") return [];
+    if (form.repaymentMode === "single") return [];
     return generateInstallments({
       principal: Number(form.amount),
-      annualInterestRate: Number(form.interestRate) || 0,
+      annualInterestRate: (Number(form.interestRate) || 0) * (form.interestRateUnit === "monthly" ? 12 : 1),
       termMonths: Number(form.termMonths),
       firstPaymentDate: form.firstPaymentDate,
-      calculationMethod: form.calculationMethod,
+      calculationMethod: form.repaymentMode === "interest_only" ? "equal_payment" : form.calculationMethod,
       currency: form.currency,
+      repaymentMode: form.repaymentMode,
     });
-  }, [form.amount, form.calculationMethod, form.currency, form.firstPaymentDate, form.interestRate, form.repaymentMode, form.termMonths]);
+  }, [form.amount, form.calculationMethod, form.currency, form.firstPaymentDate, form.interestRate, form.interestRateUnit, form.repaymentMode, form.termMonths]);
 
   const previewSummary = useMemo(
     () => getDebtScheduleSummary(previewInstallments),
@@ -126,6 +150,10 @@ export default function DebtManagement() {
       calculationMethod: debt.calculationMethod || "equal_payment",
       firstPaymentDate: toDateInput(debt.firstPaymentDate) || nextMonthDate(),
       termMonths: debt.termMonths?.toString() || "12",
+      purpose: debt.purpose || "general",
+      linkedAssetId: debt.linkedAssetId || "",
+      interestRateUnit: debt.interestRateUnit || "annual",
+      investmentFee: debt.investmentFee?.toString() || "",
     });
     setError("");
     setShowForm(true);
@@ -137,7 +165,7 @@ export default function DebtManagement() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
-    if (form.repaymentMode === "installment" && previewInstallments.length === 0 && !hasPaidInstallment) {
+    if (form.repaymentMode !== "single" && previewInstallments.length === 0 && !hasPaidInstallment) {
       setError("Vui lòng kiểm tra số tiền, số tháng và ngày trả kỳ đầu.");
       return;
     }
@@ -153,6 +181,7 @@ export default function DebtManagement() {
           amount: Number(form.amount),
           interestRate: Number(form.interestRate) || 0,
           termMonths: Number(form.termMonths),
+          investmentFee: Number(form.investmentFee) || 0,
         }),
       });
       const data = await res.json();
@@ -193,7 +222,7 @@ export default function DebtManagement() {
   const convertToVND = (value: number, currency: string) => value * (rates[currency] || 1);
   const getRemainingPrincipal = (debt: Debt) => {
     if (debt.status === "paid") return 0;
-    if (debt.repaymentMode !== "installment") return debt.amount;
+    if (debt.repaymentMode === "single") return debt.amount;
     return getDebtScheduleSummary(debt.installments || []).remainingPrincipal;
   };
 
@@ -251,6 +280,22 @@ export default function DebtManagement() {
                 <option value="lent">Cho mượn (phải thu)</option>
               </select>
             </Field>
+            {form.type === "borrowed" && (
+              <Field label="Mục đích khoản vay">
+                <select value={form.purpose} onChange={(e) => updateForm("purpose", e.target.value as DebtForm["purpose"])} className="input-field">
+                  <option value="general">Chi tiêu / mục đích khác</option>
+                  <option value="investment">Vay để đầu tư</option>
+                </select>
+              </Field>
+            )}
+            {form.type === "borrowed" && form.purpose === "investment" && (
+              <Field label="Tài sản đầu tư liên kết">
+                <select required value={form.linkedAssetId} onChange={(e) => updateForm("linkedAssetId", e.target.value)} className="input-field">
+                  <option value="">Chọn tài sản</option>
+                  {assets.filter((asset) => asset.currency !== "VND").map((asset) => <option key={asset._id} value={asset._id}>{asset.name} ({asset.currency})</option>)}
+                </select>
+              </Field>
+            )}
             <Field label="Số tiền gốc">
               <input required type="number" min="1" disabled={hasPaidInstallment} value={form.amount} onChange={(e) => updateForm("amount", e.target.value)} className="input-field disabled:bg-slate-100" placeholder="0" />
             </Field>
@@ -263,16 +308,16 @@ export default function DebtManagement() {
 
             <div className="md:col-span-2">
               <label className="mb-2 block text-sm font-medium text-slate-700">Hình thức thanh toán</label>
-              <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
-                {(["single", "installment"] as RepaymentMode[]).map((mode) => (
+              <div className="grid grid-cols-1 gap-2 rounded-xl bg-slate-100 p-1 sm:grid-cols-3">
+                {(["single", "installment", "interest_only"] as RepaymentMode[]).map((mode) => (
                   <button key={mode} type="button" disabled={hasPaidInstallment} onClick={() => updateForm("repaymentMode", mode)} className={`rounded-lg px-3 py-2 text-sm font-semibold transition-all disabled:cursor-not-allowed ${form.repaymentMode === mode ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500"}`}>
-                    {mode === "single" ? "Trả một lần" : "Trả góp hàng tháng"}
+                    {mode === "single" ? "Trả một lần" : mode === "interest_only" ? "Trả lãi tháng, gốc cuối kỳ" : "Trả góp hàng tháng"}
                   </button>
                 ))}
               </div>
             </div>
 
-            {form.repaymentMode === "installment" ? (
+            {form.repaymentMode !== "single" ? (
               <>
                 {hasPaidInstallment && (
                   <div className="rounded-xl bg-amber-50 p-3 text-sm text-amber-700 md:col-span-2">
@@ -282,23 +327,30 @@ export default function DebtManagement() {
                 <Field label="Ngày trả kỳ đầu">
                   <input required type="date" disabled={hasPaidInstallment} value={form.firstPaymentDate} onChange={(e) => updateForm("firstPaymentDate", e.target.value)} className="input-field disabled:bg-slate-100" />
                 </Field>
-                <Field label="Số tháng trả góp">
+                <Field label={form.repaymentMode === "interest_only" ? "Thời hạn vay (tháng)" : "Số tháng trả góp"}>
                   <input required type="number" min="1" max="600" disabled={hasPaidInstallment} value={form.termMonths} onChange={(e) => updateForm("termMonths", e.target.value)} className="input-field disabled:bg-slate-100" />
                 </Field>
-                <Field label="Cách tính trả góp">
+                {form.repaymentMode === "installment" && <Field label="Cách tính trả góp">
                   <select disabled={hasPaidInstallment} value={form.calculationMethod} onChange={(e) => updateForm("calculationMethod", e.target.value as DebtCalculationMethod)} className="input-field disabled:bg-slate-100">
                     <option value="equal_payment">Trả đều hàng tháng</option>
                     <option value="equal_principal">Gốc cố định, lãi giảm dần</option>
                     <option value="no_interest">Không lãi suất</option>
                   </select>
+                </Field>}
+                <Field label="Lãi suất">
+                  <div className="flex gap-2">
+                    <input type="number" min="0" step="0.01" disabled={hasPaidInstallment || (form.repaymentMode === "installment" && form.calculationMethod === "no_interest")} value={form.repaymentMode === "installment" && form.calculationMethod === "no_interest" ? "0" : form.interestRate} onChange={(e) => updateForm("interestRate", e.target.value)} className="input-field min-w-0 disabled:bg-slate-100" placeholder="0" />
+                    <select disabled={hasPaidInstallment} value={form.interestRateUnit} onChange={(e) => updateForm("interestRateUnit", e.target.value as DebtForm["interestRateUnit"])} className="input-field w-32 disabled:bg-slate-100"><option value="annual">%/năm</option><option value="monthly">%/tháng</option></select>
+                  </div>
                 </Field>
-                <Field label="Lãi suất (%/năm)">
-                  <input type="number" min="0" step="0.01" disabled={hasPaidInstallment || form.calculationMethod === "no_interest"} value={form.calculationMethod === "no_interest" ? "0" : form.interestRate} onChange={(e) => updateForm("interestRate", e.target.value)} className="input-field disabled:bg-slate-100" placeholder="0" />
-                </Field>
+
+                {form.purpose === "investment" && <Field label="Phí vay ban đầu">
+                  <input type="number" min="0" step="any" value={form.investmentFee} onChange={(e) => updateForm("investmentFee", e.target.value)} className="input-field" placeholder="0" />
+                </Field>}
 
                 {!hasPaidInstallment && previewInstallments.length > 0 && (
                   <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4 md:col-span-2">
-                    <div className="mb-3 flex items-center gap-2 font-semibold text-indigo-800"><CalendarDays className="h-4 w-4" /> Xem trước kế hoạch trả góp</div>
+                    <div className="mb-3 flex items-center gap-2 font-semibold text-indigo-800"><CalendarDays className="h-4 w-4" /> {form.repaymentMode === "interest_only" ? "Xem trước lịch trả lãi" : "Xem trước kế hoạch trả góp"}</div>
                     <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
                       <PreviewStat label="Kỳ đầu" value={formatCurrency(previewInstallments[0].totalAmount, form.currency)} />
                       <PreviewStat label="Tổng tiền lãi" value={formatCurrency(previewSummary.totalInterest, form.currency)} />
@@ -349,6 +401,21 @@ export default function DebtManagement() {
           const isExpanded = expandedDebtId === debt._id;
           const remaining = getRemainingPrincipal(debt);
           const overdueCount = installments.filter(isOverdue).length;
+          const linkedTransactions = transactions.filter((tx) => tx.debtId === debt._id && tx.type === "buy");
+          const investmentQuantity = linkedTransactions.reduce((sum, tx) => sum + tx.quantity, 0);
+          const investmentCostVND = linkedTransactions.reduce((sum, tx) => sum + tx.totalValueVND, 0);
+          const linkedAsset = assets.find((asset) => asset._id === debt.linkedAssetId);
+          const currentInvestmentValueVND = investmentQuantity * (linkedAsset ? rates[linkedAsset.currency] || 0 : 0);
+          const grossInvestmentPnlVND = currentInvestmentValueVND - investmentCostVND;
+          const debtRateVND = rates[debt.currency] || 1;
+          const accruedInterestVND = installments
+            .filter((item) => item.status === "paid" || new Date(item.dueDate) <= new Date())
+            .reduce((sum, item) => sum + item.interestAmount, 0) * debtRateVND;
+          const projectedInterestVND = schedule.totalInterest * debtRateVND;
+          const investmentFeeVND = (debt.investmentFee || 0) * debtRateVND;
+          const netInvestmentPnlVND = grossInvestmentPnlVND - accruedInterestVND - investmentFeeVND;
+          const currentBreakEvenVND = investmentQuantity > 0 ? (investmentCostVND + accruedInterestVND + investmentFeeVND) / investmentQuantity : 0;
+          const maturityBreakEvenVND = investmentQuantity > 0 ? (investmentCostVND + projectedInterestVND + investmentFeeVND) / investmentQuantity : 0;
 
           return (
             <div key={debt._id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -359,7 +426,8 @@ export default function DebtManagement() {
                       <h4 className="font-bold text-slate-800">{debt.name}</h4>
                       <Badge color={debt.type === "borrowed" ? "rose" : "emerald"}>{debt.type === "borrowed" ? "Đi vay" : "Cho mượn"}</Badge>
                       <Badge color={debt.status === "paid" ? "slate" : "blue"}>{debt.status === "paid" ? "Đã hoàn tất" : "Đang mở"}</Badge>
-                      {debt.repaymentMode === "installment" && <Badge color="indigo">Trả góp</Badge>}
+                      {debt.repaymentMode !== "single" && <Badge color="indigo">{debt.repaymentMode === "interest_only" ? "Trả lãi tháng" : "Trả góp"}</Badge>}
+                      {debt.purpose === "investment" && <Badge color="amber">Vay đầu tư · {debt.linkedAssetName || "Tài sản"}</Badge>}
                       {overdueCount > 0 && <Badge color="rose">{overdueCount} kỳ quá hạn</Badge>}
                     </div>
                     {debt.note && <p className="mt-1 text-sm text-slate-500">{debt.note}</p>}
@@ -373,20 +441,43 @@ export default function DebtManagement() {
                 <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
                   <DebtStat label="Tiền gốc" value={formatCurrency(debt.amount, debt.currency)} />
                   <DebtStat label="Dư nợ gốc" value={formatCurrency(remaining, debt.currency)} highlight />
-                  {debt.repaymentMode === "installment" ? (
+                  {debt.repaymentMode !== "single" ? (
                     <>
                       <DebtStat label={debt.type === "borrowed" ? "Đã trả" : "Đã thu"} value={`${paidCount}/${installments.length} kỳ`} />
                       <DebtStat label="Kỳ tiếp theo" value={nextInstallment ? `${formatCurrency(nextInstallment.totalAmount, debt.currency)} · ${new Date(nextInstallment.dueDate).toLocaleDateString("vi-VN")}` : "Đã hoàn tất"} />
                     </>
                   ) : (
                     <>
-                      <DebtStat label="Lãi suất" value={debt.interestRate ? `${debt.interestRate}%/năm` : "Không có"} />
+                      <DebtStat label="Lãi suất" value={debt.interestRate ? `${debt.interestRate}%/${debt.interestRateUnit === "monthly" ? "tháng" : "năm"}` : "Không có"} />
                       <DebtStat label="Đáo hạn" value={debt.dueDate ? new Date(debt.dueDate).toLocaleDateString("vi-VN") : "Chưa đặt"} />
                     </>
                   )}
                 </div>
 
-                {debt.repaymentMode === "installment" && (
+                {debt.purpose === "investment" && (
+                  <div className="mt-5 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-4">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div><h5 className="flex items-center gap-2 font-bold text-amber-900"><TrendingUp className="h-4 w-4" />Hiệu quả đầu tư bằng vốn vay</h5><p className="mt-1 text-xs text-amber-700">Đã trừ lãi vay phát sinh và phí vay.</p></div>
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold ${netInvestmentPnlVND >= 0 ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>{netInvestmentPnlVND >= 0 ? "Lãi ròng" : "Lỗ ròng"} {formatCurrency(Math.abs(netInvestmentPnlVND), "VND")}</span>
+                    </div>
+                    {linkedTransactions.length === 0 ? (
+                      <div className="mt-4 flex gap-2 rounded-xl bg-white/80 p-3 text-sm text-amber-800"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>Chưa có giao dịch mua nào dùng khoản vay này. Khi DCA, chọn <strong>Nguồn tiền: Tiền vay</strong> để bắt đầu theo dõi.</span></div>
+                    ) : (
+                      <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                        <PreviewStat label={`Đã mua ${linkedAsset?.currency || "tài sản"}`} value={`${investmentQuantity.toLocaleString("en-US", { maximumFractionDigits: 8 })} ${linkedAsset?.currency || ""}`} />
+                        <PreviewStat label="Giá trị hiện tại" value={formatCurrency(currentInvestmentValueVND, "VND")} />
+                        <PreviewStat label="Lãi/lỗ đầu tư" value={`${grossInvestmentPnlVND >= 0 ? "+" : "-"}${formatCurrency(Math.abs(grossInvestmentPnlVND), "VND")}`} />
+                        <PreviewStat label="Lãi vay đã phát sinh" value={formatCurrency(accruedInterestVND, "VND")} />
+                        <PreviewStat label="Giá hòa vốn hiện tại" value={`${formatCurrency(currentBreakEvenVND, "VND")}/${linkedAsset?.currency || "coin"}`} />
+                        <PreviewStat label="Hòa vốn đến đáo hạn" value={`${formatCurrency(maturityBreakEvenVND, "VND")}/${linkedAsset?.currency || "coin"}`} />
+                        <PreviewStat label="Tổng lãi vay dự kiến" value={formatCurrency(projectedInterestVND, "VND")} />
+                        <PreviewStat label="Số lệnh dùng vốn vay" value={`${linkedTransactions.length} giao dịch`} />
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {debt.repaymentMode !== "single" && (
                   <div className="mt-4">
                     <div className="mb-1.5 flex justify-between text-xs text-slate-500"><span>Tiến độ thanh toán</span><span>{progress.toFixed(0)}%</span></div>
                     <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-emerald-500 transition-all" style={{ width: `${progress}%` }} /></div>
@@ -398,13 +489,13 @@ export default function DebtManagement() {
                 )}
               </div>
 
-              {isExpanded && debt.repaymentMode === "installment" && (
+              {isExpanded && debt.repaymentMode !== "single" && (
                 <div className="border-t border-slate-200 bg-slate-50/60 p-4">
                   <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                     <PreviewStat label="Tổng tiền lãi" value={formatCurrency(schedule.totalInterest, debt.currency)} />
                     <PreviewStat label="Tổng phải thanh toán" value={formatCurrency(schedule.totalPayable, debt.currency)} />
                     <PreviewStat label={debt.type === "borrowed" ? "Đã thanh toán" : "Đã thu"} value={formatCurrency(schedule.paidTotal, debt.currency)} />
-                    <PreviewStat label="Phương thức" value={methodLabel(debt.calculationMethod)} />
+                    <PreviewStat label="Phương thức" value={debt.repaymentMode === "interest_only" ? "Lãi tháng, gốc cuối kỳ" : methodLabel(debt.calculationMethod)} />
                   </div>
                   <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                     <table className="w-full min-w-[760px] text-left text-sm">

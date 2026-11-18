@@ -7,6 +7,7 @@ interface GenerateInstallmentsInput {
   firstPaymentDate: string | Date;
   calculationMethod: DebtCalculationMethod;
   currency: string;
+  repaymentMode?: 'installment' | 'interest_only';
 }
 
 const roundMoney = (value: number, currency: string) =>
@@ -28,6 +29,7 @@ export function generateInstallments({
   firstPaymentDate,
   calculationMethod,
   currency,
+  repaymentMode = 'installment',
 }: GenerateInstallmentsInput): DebtInstallment[] {
   if (!Number.isFinite(principal) || principal <= 0) return [];
   if (!Number.isInteger(termMonths) || termMonths < 1 || termMonths > 600) return [];
@@ -48,9 +50,11 @@ export function generateInstallments({
     const interest = calculationMethod === 'no_interest'
       ? 0
       : remainingPrincipal * monthlyRate;
-    let principalPart = calculationMethod === 'equal_payment'
-      ? equalPayment - interest
-      : equalPrincipal;
+    let principalPart = repaymentMode === 'interest_only'
+      ? 0
+      : calculationMethod === 'equal_payment'
+        ? equalPayment - interest
+        : equalPrincipal;
 
     if (index === termMonths - 1) principalPart = remainingPrincipal;
     principalPart = roundMoney(Math.max(0, principalPart), currency);

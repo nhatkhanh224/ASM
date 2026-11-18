@@ -1,5 +1,5 @@
 export type DebtType = 'borrowed' | 'lent';
-export type RepaymentMode = 'single' | 'installment';
+export type RepaymentMode = 'single' | 'installment' | 'interest_only';
 export type DebtCalculationMethod = 'equal_payment' | 'equal_principal' | 'no_interest';
 
 export interface DebtInstallment {
@@ -30,6 +30,11 @@ export interface Debt {
   firstPaymentDate?: string;
   termMonths?: number;
   installments?: DebtInstallment[];
+  purpose?: 'general' | 'investment';
+  linkedAssetId?: string;
+  linkedAssetName?: string;
+  interestRateUnit?: 'annual' | 'monthly';
+  investmentFee?: number;
   note?: string;
   createdAt: string;
   updatedAt: string;

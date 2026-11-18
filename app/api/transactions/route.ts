@@ -4,6 +4,7 @@ import { Transaction } from '@/models/Transaction'
 import { Asset } from '@/models/Asset'
 import { getUserIdFromRequest } from '@/libs/auth'
 import { calculateTrackedQuantity } from '@/libs/portfolioCalculator'
+import { Debt } from '@/models/Debt'
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Có lỗi xảy ra'
 
@@ -61,6 +62,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Tài sản này đã có số dư ban đầu' }, { status: 409 })
     }
 
+    let debtId: string | undefined
+    if (body.fundingSource === 'debt') {
+      const debt = await Debt.findOne({
+        _id: body.debtId,
+        userId,
+        type: 'borrowed',
+        purpose: 'investment',
+        status: 'active',
+        linkedAssetId: assetId,
+      }).select('_id')
+      if (!debt) return NextResponse.json({ error: 'Khoản vay đầu tư không hợp lệ hoặc không liên kết với tài sản này' }, { status: 400 })
+      debtId = debt._id.toString()
+    }
+
     const tx = await Transaction.create({
       userId,
       assetId,
@@ -71,6 +86,8 @@ export async function POST(request: Request) {
       pricePerUnit: numericPrice,
       totalValueVND: numericTotal,
       note: typeof note === 'string' ? note.trim().slice(0, 500) : '',
+      fundingSource: body.fundingSource === 'debt' ? 'debt' : 'personal',
+      debtId,
       transactedAt: transactedAt ? new Date(transactedAt) : new Date(),
     })
 

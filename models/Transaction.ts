@@ -11,6 +11,8 @@ export interface ITransaction {
   pricePerUnit: number   // giá mỗi đơn vị tại thời điểm giao dịch (USD)
   totalValueVND: number  // tổng giá trị quy VND tại thời điểm giao dịch
   note?: string
+  fundingSource?: 'personal' | 'debt'
+  debtId?: string
   transactedAt: Date
   createdAt?: Date
 }
@@ -26,6 +28,8 @@ const TransactionSchema = new Schema<ITransaction>(
     pricePerUnit:  { type: Number, required: true, default: 0 }, // 0 nếu là VND deposit/withdraw
     totalValueVND: { type: Number, required: true },
     note:          { type: String, default: '' },
+    fundingSource: { type: String, enum: ['personal', 'debt'], default: 'personal' },
+    debtId:        { type: String, index: true },
     transactedAt:  { type: Date, required: true, default: Date.now },
   },
   { timestamps: true }

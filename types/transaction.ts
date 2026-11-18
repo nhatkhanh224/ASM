@@ -10,6 +10,8 @@ export interface TransactionRecord {
   pricePerUnit: number;
   totalValueVND: number;
   note?: string;
+  fundingSource?: "personal" | "debt";
+  debtId?: string;
   transactedAt: string | Date;
 }
 

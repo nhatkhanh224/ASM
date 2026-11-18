@@ -4,10 +4,11 @@ import React, { useState } from "react";
 import AssetManagementApp from "@/components/AssestManagement";
 import DebtManagement from "@/components/DebtManagement";
 import GoalManagement from "@/components/GoalManagement";
-import { Wallet, CreditCard, Target } from "lucide-react";
+import CapitalJournal from "@/components/CapitalJournal";
+import { Wallet, CreditCard, Target, BookOpen } from "lucide-react";
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<"asset" | "debt" | "goal">("asset");
+  const [activeTab, setActiveTab] = useState<"asset" | "debt" | "goal" | "capital">("asset");
 
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-50/70 via-slate-50 to-blue-50/70 text-slate-800">
@@ -48,6 +49,17 @@ export default function Home() {
               <Target className="w-5 h-5" />
               <span>Mục tiêu</span>
             </button>
+            <button
+              onClick={() => setActiveTab("capital")}
+              className={`px-4 py-2 rounded-xl flex items-center gap-2 font-medium transition-all duration-200 ${
+                activeTab === "capital"
+                  ? "bg-violet-600 text-white shadow-md scale-105"
+                  : "text-slate-600 hover:bg-slate-100 hover:text-violet-600"
+              }`}
+            >
+              <BookOpen className="w-5 h-5" />
+              <span>Nhật ký vốn</span>
+            </button>
           </div>
         </div>
       </div>
@@ -68,6 +80,12 @@ export default function Home() {
       {activeTab === "goal" && (
         <div className="max-w-6xl mx-auto p-6 pt-8">
           <GoalManagement />
+        </div>
+      )}
+
+      {activeTab === "capital" && (
+        <div className="max-w-6xl mx-auto p-6 pt-8">
+          <CapitalJournal />
         </div>
       )}
     </div>
