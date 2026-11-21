@@ -252,6 +252,7 @@ function TransactionForm({ assets, exchangeRates, onSaved, onCancel }: Transacti
     note: "",
     transactedAt: new Date().toISOString().slice(0, 16),
   });
+  const [buyInputMode, setBuyInputMode] = useState<"quantity" | "usdt">("quantity");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -259,14 +260,18 @@ function TransactionForm({ assets, exchangeRates, onSaved, onCancel }: Transacti
   const currency = selectedAsset?.currency?.toUpperCase() ?? "VND";
   const isVND = currency === "VND";
 
-  const qty = parseFloat(form.quantity) || 0;
+  const enteredQuantity = parseFloat(form.quantity) || 0;
   const price = parseFloat(form.pricePerUnit) || 0;
-  const totalVND = isVND ? qty : qty * price * usdRate;
+  const canEnterUsdt = !isVND && form.type === "buy";
+  const qty = canEnterUsdt && buyInputMode === "usdt"
+    ? (price > 0 ? enteredQuantity / price : 0)
+    : enteredQuantity;
+  const totalVND = isVND ? qty : (canEnterUsdt && buyInputMode === "usdt" ? enteredQuantity : qty * price) * usdRate;
 
   const submit = async () => {
     setError("");
     if (!form.assetId) return setError("Chọn tài sản");
-    if (qty <= 0) return setError("Số lượng phải > 0");
+    if (enteredQuantity <= 0) return setError(buyInputMode === "usdt" && canEnterUsdt ? "Số USDT phải > 0" : "Số lượng phải > 0");
     if (!isVND && price <= 0) return setError("Nhập giá tại thời điểm giao dịch");
 
     setSubmitting(true);
@@ -332,7 +337,7 @@ function TransactionForm({ assets, exchangeRates, onSaved, onCancel }: Transacti
             {(["buy", "sell", "deposit", "withdraw"] as const).map((t) => (
               <button
                 key={t}
-                onClick={() => setForm({ ...form, type: t })}
+                onClick={() => { setForm({ ...form, type: t }); if (t !== "buy") setBuyInputMode("quantity"); }}
                 className={`py-2 rounded-lg text-xs font-semibold transition-all ${
                   form.type === t
                     ? TX_TYPE_CONFIG[t].color + " ring-2 ring-offset-1 ring-current"
@@ -345,15 +350,23 @@ function TransactionForm({ assets, exchangeRates, onSaved, onCancel }: Transacti
           </div>
         </div>
 
-        {/* Quantity */}
+        {/* Quantity / USDT input */}
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">
-            Số lượng ({currency}) *
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs font-medium text-gray-600">
+              {canEnterUsdt && buyInputMode === "usdt" ? "Số tiền mua (USDT) *" : `Số lượng (${currency}) *`}
+            </label>
+            {canEnterUsdt && (
+              <div className="flex rounded-lg bg-gray-100 p-0.5 text-[11px]">
+                <button type="button" onClick={() => setBuyInputMode("quantity")} className={`px-2 py-1 rounded-md ${buyInputMode === "quantity" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-500"}`}>Coin</button>
+                <button type="button" onClick={() => setBuyInputMode("usdt")} className={`px-2 py-1 rounded-md ${buyInputMode === "usdt" ? "bg-white text-indigo-700 shadow-sm" : "text-gray-500"}`}>USDT</button>
+              </div>
+            )}
+          </div>
           <input
             type="number"
             step="any"
-            placeholder="0"
+            placeholder={buyInputMode === "usdt" && canEnterUsdt ? "0 USDT" : "0"}
             value={form.quantity}
             onChange={(e) => setForm({ ...form, quantity: e.target.value })}
             className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
@@ -387,6 +400,12 @@ function TransactionForm({ assets, exchangeRates, onSaved, onCancel }: Transacti
             className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
+
+        {canEnterUsdt && buyInputMode === "usdt" && enteredQuantity > 0 && price > 0 && (
+          <div className="sm:col-span-2 -mt-2 text-xs text-gray-500">
+            Dự kiến nhận: <span className="font-semibold text-gray-700">{formatQty(qty, currency)} {currency}</span>
+          </div>
+        )}
 
         {/* Note */}
         <div className={!isVND ? "" : "sm:col-span-2"}>

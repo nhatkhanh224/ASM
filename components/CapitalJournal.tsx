@@ -120,7 +120,7 @@ export default function CapitalJournal() {
     setError(""); setSaving(true);
     try {
       const calculatedStake = betForm.stakeMode === "percentage"
-        ? summary.currentCapital * Number(betForm.stakePercent) / 100
+        ? (selectedFund.initialCapital || 0) * Number(betForm.stakePercent) / 100
         : Number(betForm.stake);
       const payload = { ...betForm, fundId: selectedFund._id, kind: "bet", odds: Number(betForm.odds), stake: calculatedStake, payout: betForm.payout === "" ? undefined : Number(betForm.payout), occurredAt: new Date(betForm.occurredAt).toISOString() };
       const response = await fetch(editingBetId ? `/api/capital-entries/${editingBetId}` : "/api/capital-entries", { method: editingBetId ? "PUT" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
@@ -166,12 +166,12 @@ export default function CapitalJournal() {
   };
 
   const stake = betForm.stakeMode === "percentage"
-    ? summary.currentCapital * (Number(betForm.stakePercent) || 0) / 100
+    ? (selectedFund?.initialCapital || 0) * (Number(betForm.stakePercent) || 0) / 100
     : Number(betForm.stake) || 0;
   const odds = Number(betForm.odds) || 0;
   const customPayout = betForm.payout === "" ? undefined : Number(betForm.payout);
   const preview = calculateBetPayout(stake, odds, betForm.result, customPayout);
-  const riskPercent = summary.currentCapital > 0 ? stake / summary.currentCapital * 100 : 0;
+  const riskPercent = selectedFund?.initialCapital ? stake / selectedFund.initialCapital * 100 : 0;
 
   if (loading) return <div className="h-72 animate-pulse rounded-2xl bg-slate-100" />;
 
@@ -195,7 +195,7 @@ export default function CapitalJournal() {
             </div>
           </div>
 
-          {showBetForm && <BetFormPanel form={betForm} setForm={setBetForm} currency={selectedFund.currency} currentCapital={summary.currentCapital} availableCapital={summary.availableCapital} preview={preview} riskPercent={riskPercent} editing={Boolean(editingBetId)} onSubmit={saveBet} onCancel={closeForms} saving={saving} error={error} />}
+          {showBetForm && <BetFormPanel form={betForm} setForm={setBetForm} currency={selectedFund.currency} initialCapital={selectedFund.initialCapital} currentCapital={summary.currentCapital} availableCapital={summary.availableCapital} preview={preview} riskPercent={riskPercent} editing={Boolean(editingBetId)} onSubmit={saveBet} onCancel={closeForms} saving={saving} error={error} />}
           {showCashForm && <CashflowFormPanel form={cashForm} setForm={setCashForm} currency={selectedFund.currency} onSubmit={saveCashflow} onCancel={closeForms} saving={saving} error={error} />}
 
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -257,9 +257,9 @@ function FundFormPanel({ form, setForm, onSubmit, onCancel, saving, error }: { f
   );
 }
 
-function BetFormPanel({ form, setForm, currency, currentCapital, availableCapital, preview, riskPercent, editing, onSubmit, onCancel, saving, error }: { form: BetForm; setForm: React.Dispatch<React.SetStateAction<BetForm>>; currency: string; currentCapital: number; availableCapital: number; preview: { payout: number; profitLoss: number }; riskPercent: number; editing: boolean; onSubmit: (event: React.FormEvent) => void; onCancel: () => void; saving: boolean; error: string }) {
+function BetFormPanel({ form, setForm, currency, initialCapital, currentCapital, availableCapital, preview, riskPercent, editing, onSubmit, onCancel, saving, error }: { form: BetForm; setForm: React.Dispatch<React.SetStateAction<BetForm>>; currency: string; initialCapital: number; currentCapital: number; availableCapital: number; preview: { payout: number; profitLoss: number }; riskPercent: number; editing: boolean; onSubmit: (event: React.FormEvent) => void; onCancel: () => void; saving: boolean; error: string }) {
   const calculatedStake = form.stakeMode === "percentage"
-    ? currentCapital * (Number(form.stakePercent) || 0) / 100
+    ? initialCapital * (Number(form.stakePercent) || 0) / 100
     : Number(form.stake) || 0;
 
   return (
@@ -267,7 +267,7 @@ function BetFormPanel({ form, setForm, currency, currentCapital, availableCapita
       <div className="flex justify-between sm:col-span-2">
         <div>
           <h2 className="font-bold text-slate-800">{editing ? "Cập nhật phiếu Bet" : "Phiếu Bet mới"}</h2>
-          <p className="text-xs text-slate-500">Vốn hiện tại: {formatMoney(currentCapital, currency)} · Khả dụng: {formatMoney(availableCapital, currency)}</p>
+          <p className="text-xs text-slate-500">Vốn ban đầu: {formatMoney(initialCapital, currency)} · Vốn hiện tại: {formatMoney(currentCapital, currency)} · Khả dụng: {formatMoney(availableCapital, currency)}</p>
         </div>
         <button type="button" onClick={onCancel}><XCircle className="h-5 w-5 text-slate-400" /></button>
       </div>
@@ -295,7 +295,7 @@ function BetFormPanel({ form, setForm, currency, currentCapital, availableCapita
           <input required type="number" min="0.01" step="any" className="input-field" value={form.stake} onChange={(e) => setForm({ ...form, stake: e.target.value })} />
         </Field>
       ) : (
-        <Field label="Tỷ lệ vốn cho phiếu (%)">
+        <Field label="Tỷ lệ vốn ban đầu cho phiếu (%)">
           <input required type="number" min="0.01" max="100" step="0.01" className="input-field" value={form.stakePercent} onChange={(e) => setForm({ ...form, stakePercent: e.target.value })} placeholder="VD: 2" />
         </Field>
       )}
@@ -312,9 +312,9 @@ function BetFormPanel({ form, setForm, currency, currentCapital, availableCapita
 
       <div className={`rounded-xl border p-3 ${riskPercent > 5 ? "border-rose-200 bg-rose-50" : "border-violet-100 bg-violet-50"}`}>
         <p className="text-xs text-slate-500">Xem trước · Tiền cược {formatMoney(calculatedStake, currency)}</p>
-        <p className={`mt-1 font-bold ${preview.profitLoss >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{preview.profitLoss >= 0 ? "+" : ""}{formatMoney(preview.profitLoss, currency)} · Rủi ro {riskPercent.toFixed(1)}% vốn</p>
+        <p className={`mt-1 font-bold ${preview.profitLoss >= 0 ? "text-emerald-600" : "text-rose-600"}`}>{preview.profitLoss >= 0 ? "+" : ""}{formatMoney(preview.profitLoss, currency)} · Rủi ro {riskPercent.toFixed(1)}% vốn ban đầu</p>
         {calculatedStake > availableCapital && <p className="mt-1 text-xs text-rose-600">Tiền cược đang vượt vốn khả dụng.</p>}
-        {riskPercent > 5 && <p className="mt-1 text-xs text-rose-600">Cảnh báo: phiếu này dùng hơn 5% tổng vốn.</p>}
+        {riskPercent > 5 && <p className="mt-1 text-xs text-rose-600">Cảnh báo: phiếu này dùng hơn 5% vốn ban đầu.</p>}
       </div>
       {error && <p className="text-sm text-rose-600 sm:col-span-2">{error}</p>}
       <div className="flex justify-end gap-2 sm:col-span-2">
